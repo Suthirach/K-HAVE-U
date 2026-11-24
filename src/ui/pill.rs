@@ -83,7 +83,7 @@ pub fn circle_action_btn<S: 'static>(
         .fill(theme::accent_primary_bg())
         .hover(Color::BLACK.alpha(0.08))
         .press(Color::BLACK.alpha(0.16))
-        .press_scale(0.94)
+        .press_scale(PRESS_ICON)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
         .box_shadow(Shadow {
             x: 0.0,
@@ -117,7 +117,7 @@ pub fn mini_pill_btn<S: 'static>(
         .border(1.0, Color::WHITE.alpha(0.10))
         .hover(Color::WHITE.alpha(0.14))
         .press(Color::BLACK.alpha(0.18))
-        .press_scale(0.96)
+        .press_scale(PRESS_PILL)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
         .on_press(on_click)
         .child(
@@ -151,12 +151,27 @@ pub fn soft_badge(label: impl Into<String>, bg: Color, fg: Color, border: Option
     }
 }
 
-/// Applies tactile spring hover + press feedback to any clickable card or tile.
+// Press depths: Rune springs back with `motion::POP` on release, so a deeper press reads as a bounce.
+const PRESS_PILL: f32 = 0.9;
+const PRESS_ICON: f32 = 0.84;
+const PRESS_CARD: f32 = 0.95;
+const PRESS_ROW: f32 = 0.99;
+
+/// Applies tactile spring hover + bouncy press feedback to any clickable card or tile.
 pub fn interactive(e: El) -> El {
+    interactive_scaled(e, PRESS_CARD)
+}
+
+/// [`interactive`] for full-width rows (log lines), where a deep bounce would distract.
+pub fn interactive_row(e: El) -> El {
+    interactive_scaled(e, PRESS_ROW)
+}
+
+fn interactive_scaled(e: El, scale: f32) -> El {
     e.cursor(Cursor::Pointer)
         .hover(Color::WHITE.alpha(0.06))
         .press(Color::BLACK.alpha(0.14))
-        .press_scale(0.985)
+        .press_scale(scale)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
 }
 
@@ -227,7 +242,7 @@ fn build_pill(ic: Option<&'static Icon>, label: String, variant: PillVariant, si
         .border(1.0, border_col)
         .hover(hover_col)
         .press(Color::BLACK.alpha(0.18))
-        .press_scale(0.96)
+        .press_scale(PRESS_PILL)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
         .box_shadow(Shadow {
             x: 0.0,
@@ -270,7 +285,7 @@ fn build_icon_only(ic: &'static Icon, a11y_label: &'static str, variant: PillVar
         .border(1.0, border_col)
         .hover(hover_col)
         .press(Color::BLACK.alpha(0.18))
-        .press_scale(0.94)
+        .press_scale(PRESS_ICON)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
         .motion(motion::SNAPPY)
         .child(mono_icon(ic, icon_sz, fg))

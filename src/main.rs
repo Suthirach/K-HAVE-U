@@ -13,7 +13,12 @@ fn setup(s: &mut AppState, waker: Waker) {
 }
 
 fn poll(s: &mut AppState, t: f64, tx: &mut Tx) -> bool {
+    let selected_before = s.selected_service.clone();
     let mut changed = s.drain_events();
+    // A G6 click arrives over IPC, not as window input, so ask for the drawer's slide explicitly.
+    if s.selected_service != selected_before {
+        tx.animated();
+    }
     if s.session.is_some() && s.has_any_issue() {
         tx.wake_after(std::time::Duration::from_millis(450));
         let next = ((t * 2.2) as u64) % 2 == 0;

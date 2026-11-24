@@ -147,10 +147,33 @@ pub fn spawn_google_login(
     });
 }
 
+fn gcloud_command(args: &[&str]) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg("gcloud").args(args);
+        cmd
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = Command::new("gcloud");
+        cmd.args(args);
+        cmd
+    }
+}
+
+fn open_browser(url: &str) {
+    #[cfg(target_os = "windows")]
+    let _ = Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = Command::new("xdg-open").arg(url).spawn();
+}
+
 fn gcloud_google_login(force_browser: bool, cfg: &GoogleAuthConfig) -> Result<Session, String> {
     if force_browser {
-        let status = Command::new("cmd")
-            .args(["/C", "gcloud", "auth", "login", "--quiet"])
+        let status = gcloud_command(&["auth", "login", "--quiet"])
             .status()
             .map_err(|e| format!("เรียก gcloud ไม่สำเร็จ: {e}"))?;
         if !status.success() {
@@ -158,23 +181,20 @@ fn gcloud_google_login(force_browser: bool, cfg: &GoogleAuthConfig) -> Result<Se
         }
     }
 
-    let out = Command::new("cmd")
-        .args(["/C", "gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"])
+    let out = gcloud_command(&["auth", "list", "--filter=status:ACTIVE", "--format=value(account)"])
         .output()
         .map_err(|e| format!("ไม่พบ gcloud CLI: {e}"))?;
 
     let email = String::from_utf8_lossy(&out.stdout).trim().lines().next().unwrap_or("").trim().to_string();
     if email.is_empty() {
         // Trigger interactive browser login if no active account yet
-        let status = Command::new("cmd")
-            .args(["/C", "gcloud", "auth", "login", "--quiet"])
+        let status = gcloud_command(&["auth", "login", "--quiet"])
             .status()
             .map_err(|e| format!("เปิด Google Login ไม่สำเร็จ: {e}"))?;
         if !status.success() {
             return Err("ยังไม่ได้ล็อกอิน Google Account (กรุณาล็อกอินใน browser)".into());
         }
-        let out2 = Command::new("cmd")
-            .args(["/C", "gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"])
+        let out2 = gcloud_command(&["auth", "list", "--filter=status:ACTIVE", "--format=value(account)"])
             .output()
             .map_err(|e| format!("อ่านบัญชี Google ไม่สำเร็จ: {e}"))?;
         let email2 = String::from_utf8_lossy(&out2.stdout).trim().lines().next().unwrap_or("").trim().to_string();
@@ -222,7 +242,7 @@ fn oauth_browser_login(
         url_encode(&challenge),
     );
 
-    let _ = Command::new("cmd").args(["/C", "start", "", &auth_url]).spawn();
+    open_browser(&auth_url);
 
     let (mut stream, _) = listener.accept().map_err(|e| format!("รอ callback จาก Google ไม่สำเร็จ: {e}"))?;
     let mut buf = [0u8; 4096];

@@ -5,10 +5,10 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
-rune = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/crates/rune", default-features = true }
-rune-kit = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/crates/rune-kit", default-features = true, features = ["markdown", "mermaid"] }
-rune-theme-opencode = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/themes/opencode" }
-rune-mermaid = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/crates/rune-mermaid" }
+rune = { path = "../rune/crates/rune", default-features = true }
+rune-kit = { path = "../rune/crates/rune-kit", default-features = true, features = ["markdown", "mermaid"] }
+rune-theme-opencode = { path = "../rune/themes/opencode" }
+rune-mermaid = { path = "../rune/crates/rune-mermaid" }
 wry = "0.57"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -18,9 +18,9 @@ sha2 = "0.10"
 base64 = "0.22"
 
 [patch.crates-io]
-wgpu-hal = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/vendor/wgpu-hal" }
-winit = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/vendor/winit" }
-sctk-adwaita = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/vendor/sctk-adwaita" }
-parley_engine = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/vendor/parley_engine" }
-accesskit_windows = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/vendor/accesskit_windows" }
-accesskit_macos = { path = "/Users/devid3k/Desktop/PROJECT/API/rune/vendor/accesskit_macos" }
+wgpu-hal = { path = "../rune/vendor/wgpu-hal" }
+winit = { path = "../rune/vendor/winit" }
+sctk-adwaita = { path = "../rune/vendor/sctk-adwaita" }
+parley_engine = { path = "../rune/vendor/parley_engine" }
+accesskit_windows = { path = "../rune/vendor/accesskit_windows" }
+accesskit_macos = { path = "../rune/vendor/accesskit_macos" }

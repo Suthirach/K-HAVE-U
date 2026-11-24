@@ -8,11 +8,11 @@ use crate::ui::pill::{
 use crate::ui::topology_g6::{G6Command, TopologyViewMode};
 use crate::ui::{alert_blink_color, health_color, theme};
 use rune::{
-    Color, Cursor, Drag, El, LineCap, Path, Phase, ScrollSpec, Shadow, Shape, TextStyle,
-    WheelEvent, col, el, row, text,
+    Color, Cursor, Drag, Edge, El, LineCap, Path, Phase, ScrollSpec, Shadow, Shape, Spring,
+    SpringPair, TextStyle, Transition, WheelEvent, col, el, row, text,
 };
 use rune::tok::motion;
-use rune_kit::Kit;
+use rune_kit::{Kit, TextInput};
 use rune_mermaid::{DiagramStyle, Hover};
 
 pub fn render_mermaid_zoomable(src: &str, zoom: f32, fullscreen: bool, k: &Kit) -> El {
@@ -210,21 +210,16 @@ fn infra_building_canvas(s: &AppState, fullscreen: bool) -> El {
     let snap = &s.snapshot;
     let z = s.diagram_zoom;
 
-    let apis: Vec<&ServiceInfo> = snap
-        .services
-        .iter()
-        .filter(|x| x.role == NodeRole::Api)
-        .collect();
-    let workers: Vec<&ServiceInfo> = snap
-        .services
-        .iter()
-        .filter(|x| x.role == NodeRole::Worker)
-        .collect();
-    let caches: Vec<&ServiceInfo> = snap
-        .services
-        .iter()
-        .filter(|x| x.role == NodeRole::Cache)
-        .collect();
+    let query = s.search.text.trim().to_ascii_lowercase();
+    let matches_query = |x: &&ServiceInfo| -> bool {
+        query.is_empty()
+            || x.name.to_ascii_lowercase().contains(&query)
+            || x.hosts.iter().any(|h| h.to_ascii_lowercase().contains(&query))
+    };
+
+    let apis: Vec<&ServiceInfo> = snap.services.iter().filter(|x| x.role == NodeRole::Api).filter(matches_query).collect();
+    let workers: Vec<&ServiceInfo> = snap.services.iter().filter(|x| x.role == NodeRole::Worker).filter(matches_query).collect();
+    let caches: Vec<&ServiceInfo> = snap.services.iter().filter(|x| x.role == NodeRole::Cache).filter(matches_query).collect();
 
     let cols = 6usize;
     let cell_w = 175.0 * z;
@@ -1028,15 +1023,48 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         }
     };
 
-    let header = row()
+    let query = s.search.text.trim().to_ascii_lowercase();
+    let matched_count = if query.is_empty() {
+        snap.services.len()
+    } else {
+        snap.services
+            .iter()
+            .filter(|x| {
+                x.name.to_ascii_lowercase().contains(&query)
+                    || x.hosts.iter().any(|h| h.to_ascii_lowercase().contains(&query))
+            })
+            .count()
+    };
+    let svc_badge = if query.is_empty() {
+        format!("{} services", snap.services.len())
+    } else {
+        format!("{matched_count} / {} services", snap.services.len())
+    };
+
+    let mut search_bar = row()
+        .gap(6.0)
+        .center_y()
+        .child(
+            TextInput::new(&s.search)
+                .width(Some(240.0))
+                .placeholder("ค้นหา service เช่น joker, sexy...")
+                .on_edit(|s: &mut AppState| &mut s.search)
+                .build(k),
+        );
+    if !query.is_empty() {
+        search_bar = search_bar.child(pill_icon_only(&icons::CLOSE, "Clear search", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| {
+            s.search = rune::TextEdit::new("");
+        }));
+    }
+
+    let header = col()
         .key("topo-header")
         .w_full()
-        .center_y()
         .gap(12.0)
         .child(
             col()
                 .gap(3.0)
-                .grow(1.0)
+                .w_full()
                 .child(
                     row()
                         .gap(8.0)
@@ -1051,7 +1079,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                             .color(theme::text_strong()),
                         )
                         .child(soft_badge(
-                            format!("{} services", snap.services.len()),
+                            svc_badge,
                             theme::glass_card(),
                             theme::text_secondary(),
                             Some(theme::border_subtle()),
@@ -1063,12 +1091,20 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                         .color(theme::text_muted()),
                 ),
         )
-        .child(topology_mode_switch(s.topology_mode))
-        .child(if use_g6 {
-            g6_zoom_toolbar()
-        } else {
-            zoom_toolbar(pct)
-        });
+        .child(
+            row()
+                .w_full()
+                .center_y()
+                .gap(12.0)
+                .child(search_bar)
+                .child(el().grow(1.0))
+                .child(topology_mode_switch(s.topology_mode))
+                .child(if use_g6 {
+                    g6_zoom_toolbar()
+                } else {
+                    zoom_toolbar(pct)
+                }),
+        );
 
     let canvas = if use_g6 {
         g6_viewport_host(s, false, k)
@@ -1090,16 +1126,13 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .child(header)
         .child(canvas);
 
+    // Same row either way, so the main column keeps its identity and eases its width as the
+    // drawer slides in and out.
+    let mut split = row().key("topo-split").w_full().h_full().child(main_col);
     if let Some(svc) = s.selected_service_info() {
-        return row()
-            .key("topo-split")
-            .w_full()
-            .h_full()
-            .child(main_col)
-            .child(detail_drawer(s, svc, k));
+        split = split.child(detail_drawer(s, svc, k));
     }
-
-    main_col.w_full()
+    split
 }
 
 fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
@@ -1113,6 +1146,11 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
         .fill(theme::bg_chrome())
         .border_sides([0.0, 0.0, 0.0, 1.0], theme::border_glass())
         .motion(motion::SNAPPY)
+        .transition(
+            Transition::move_edge(Edge::Trailing)
+                .combined(Transition::opacity())
+                .springs(SpringPair::new(Spring::new(0.45, 0.12), Spring::new(0.28, 0.0))),
+        )
         .child(
             row()
                 .center_y()

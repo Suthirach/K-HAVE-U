@@ -2,7 +2,7 @@ use crate::k8s::{EnvKind, ServiceInfo, build_service_mermaid};
 use crate::state::{AppState, Page, ServiceTab, Tab};
 use crate::ui::icons::{self, mono_icon};
 use crate::ui::pill::{
-    PillSize, PillVariant, interactive, pill_btn, pill_icon_btn, segmented_group, soft_badge,
+    PillSize, PillVariant, interactive_row, pill_btn, pill_icon_btn, segmented_group, soft_badge,
 };
 use crate::ui::topology::render_mermaid_zoomable;
 use crate::ui::{health_color, theme};
@@ -505,7 +505,7 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
         for (col_fg, seg) in spans {
             line_row = line_row.child(text(seg).font(k.ty.mono).color(col_fg));
         }
-        let line_widget = interactive(
+        let line_widget = interactive_row(
             row()
                 .key(format!("log-line-{idx}"))
                 .w_full()

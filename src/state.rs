@@ -526,7 +526,17 @@ impl AppState {
 
     pub fn copy_to_clipboard(&mut self, text: String, label: &str) {
         use std::io::Write;
-        if let Ok(mut child) = std::process::Command::new("clip")
+        #[cfg(target_os = "windows")]
+        let mut cmd = std::process::Command::new("clip");
+        #[cfg(target_os = "macos")]
+        let mut cmd = std::process::Command::new("pbcopy");
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut cmd = {
+            let mut c = std::process::Command::new("xclip");
+            c.args(["-selection", "clipboard"]);
+            c
+        };
+        if let Ok(mut child) = cmd
             .stdin(std::process::Stdio::piped())
             .spawn()
         {
@@ -674,28 +684,52 @@ impl AppState {
             ));
         }
 
+        #[cfg(target_os = "windows")]
         let default_dir = std::env::var("USERPROFILE")
             .map(|p| format!("{p}\\Downloads"))
+            .unwrap_or_else(|_| ".".into());
+        #[cfg(not(target_os = "windows"))]
+        let default_dir = std::env::var("HOME")
+            .map(|p| format!("{p}/Downloads"))
             .unwrap_or_else(|_| ".".into());
         let file_name = format!("{}-{}-env.csv", svc, self.namespace);
         let tx = self.k8s_tx.clone();
         let waker = self.waker.clone();
 
         std::thread::spawn(move || {
-            let ps_script = format!(
-                "Add-Type -AssemblyName System.Windows.Forms; \
-                 $d = New-Object System.Windows.Forms.SaveFileDialog; \
-                 $d.Filter = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'; \
-                 $d.InitialDirectory = '{}'; \
-                 $d.FileName = '{}'; \
-                 $d.Title = 'เลือกตำแหน่งบันทึกไฟล์ ENV CSV'; \
-                 if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $d.FileName }}",
-                default_dir.replace('\'', "''"),
-                file_name.replace('\'', "''"),
-            );
-            let out = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-STA", "-Command", &ps_script])
-                .output();
+            #[cfg(target_os = "windows")]
+            let out = {
+                let ps_script = format!(
+                    "Add-Type -AssemblyName System.Windows.Forms; \
+                     $d = New-Object System.Windows.Forms.SaveFileDialog; \
+                     $d.Filter = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'; \
+                     $d.InitialDirectory = '{}'; \
+                     $d.FileName = '{}'; \
+                     $d.Title = 'เลือกตำแหน่งบันทึกไฟล์ ENV CSV'; \
+                     if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $d.FileName }}",
+                    default_dir.replace('\'', "''"),
+                    file_name.replace('\'', "''"),
+                );
+                std::process::Command::new("powershell")
+                    .args(["-NoProfile", "-STA", "-Command", &ps_script])
+                    .output()
+            };
+            #[cfg(target_os = "macos")]
+            let out = {
+                let osa_script = format!(
+                    "POSIX path of (choose file name with prompt \"เลือกตำแหน่งบันทึกไฟล์ ENV CSV\" default name \"{}\" default location POSIX file \"{}\")",
+                    file_name.replace('"', "\\\""),
+                    default_dir.replace('"', "\\\""),
+                );
+                std::process::Command::new("osascript")
+                    .args(["-e", &osa_script])
+                    .output()
+            };
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let out: std::io::Result<std::process::Output> = Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Save dialog unsupported",
+            ));
 
             if let Ok(o) = out {
                 let chosen = String::from_utf8_lossy(&o.stdout).trim().to_string();
