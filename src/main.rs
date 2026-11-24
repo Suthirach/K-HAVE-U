@@ -1,5 +1,6 @@
 mod auth;
 mod gcp;
+mod i18n;
 mod k8s;
 mod pty_k9s;
 mod state;
@@ -20,6 +21,15 @@ fn setup(s: &mut AppState, waker: Waker) {
 fn poll(s: &mut AppState, t: f64, tx: &mut Tx) -> bool {
     let selected_before = s.selected_service.clone();
     let mut changed = s.drain_events();
+    changed |= s.track_navigation();
+    if s.tick_hold() {
+        tx.wake_after(std::time::Duration::from_millis(16));
+        changed = true;
+    }
+    if s.tick_loader(t) {
+        tx.wake_after(std::time::Duration::from_millis(33));
+        changed = true;
+    }
     // A G6 click arrives over IPC, not as window input, so ask for the drawer's slide explicitly.
     if s.selected_service != selected_before {
         tx.animated();
@@ -54,6 +64,10 @@ fn on_key(s: &mut AppState, ev: &KeyEvent, _tx: &mut Tx) -> bool {
         return false;
     }
 
+    if s.svc_picker_open && matches!(ev.key, Key::Escape) {
+        s.close_svc_picker();
+        return true;
+    }
     if s.diagram_fullscreen && matches!(ev.key, Key::Escape) {
         s.diagram_fullscreen = false;
         return true;
@@ -102,6 +116,8 @@ fn view(s: &AppState, _cx: &mut Cx<AppState>) -> El {
         h.finish()
     };
     ui::pill::begin_view(screen);
+    ui::theme::set_dark(s.dark);
+    i18n::set_thai(s.lang_th);
     let k = ui::theme::warm_dark_kit();
     let base = if s.show_setup {
         ui::setup::view(s, k)
@@ -112,7 +128,12 @@ fn view(s: &AppState, _cx: &mut Cx<AppState>) -> El {
     } else {
         ui::login::view(s, k)
     };
-    rune_kit::root(base, Vec::new())
+    let mut layer = Vec::new();
+    if s.svc_picker_open && s.session.is_some() && s.page == Page::ServiceDetail {
+        layer.push(rune_kit::scrim("svc-picker-scrim", |s: &mut AppState| s.close_svc_picker()));
+        layer.push(ui::service_detail::service_picker(s, k));
+    }
+    rune_kit::root(base, layer)
 }
 
 fn scene_overview(s: &mut AppState) {
@@ -175,7 +196,7 @@ fn prepare_macos_environment() {
         .map(|p| p.to_string_lossy().contains(".app/Contents/MacOS"))
         .unwrap_or(false);
     if from_bundle && !home.is_empty() {
-        let dir = std::path::PathBuf::from(home).join("Library/Application Support/K9s Studio");
+        let dir = std::path::PathBuf::from(home).join("Library/Application Support/Klar");
         if std::fs::create_dir_all(&dir).is_ok() {
             let _ = std::env::set_current_dir(&dir);
         }
@@ -186,6 +207,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     prepare_macos_environment();
     tools::add_to_path();
+    i18n::set_thai(state::load_lang_thai());
 
     let app = AppSpec {
         min_size: Some((1020.0, 660.0)),
@@ -199,7 +221,7 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
-        ..AppSpec::new("K9s Studio", (1340.0, 860.0), AppState::init, view)
+        ..AppSpec::new("Klar", (1340.0, 860.0), AppState::init, view)
     };
 
     rune::run_windows(|_| {

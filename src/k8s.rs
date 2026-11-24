@@ -52,9 +52,9 @@ impl Health {
 
     pub fn simple_thai(self) -> &'static str {
         match self {
-            Health::Healthy => "ทำงานปกติ",
-            Health::Warning => "กำลังเริ่มต้น / มีเตือน",
-            Health::Error => "มีปัญหา / ล่ม",
+            Health::Healthy => crate::tr!("ทำงานปกติ", "Healthy"),
+            Health::Warning => crate::tr!("กำลังเริ่มต้น / มีเตือน", "Starting / warning"),
+            Health::Error => crate::tr!("มีปัญหา / ล่ม", "Failing / down"),
         }
     }
 }
@@ -287,7 +287,7 @@ pub fn spawn_fetch_env(
                                         if cm_vars.is_empty() {
                                             vars.push(EnvVarItem {
                                                 name: "envFrom (ConfigMap)".into(),
-                                                value: format!("{cm} (ว่างหรือไม่มีสิทธิ์อ่าน)"),
+                                                value: crate::tf!("{cm} (ว่างหรือไม่มีสิทธิ์อ่าน)", "{cm} (empty or no read access)"),
                                                 is_secret: false,
                                                 source: format!("ConfigMap: {cm}"),
                                                 source_kind: EnvSourceKind::ConfigMap(cm.to_string()),
@@ -301,7 +301,7 @@ pub fn spawn_fetch_env(
                                         if sec_vars.is_empty() {
                                             vars.push(EnvVarItem {
                                                 name: "envFrom (Secret)".into(),
-                                                value: format!("{sec} (ว่างหรือไม่มีสิทธิ์อ่าน)"),
+                                                value: crate::tf!("{sec} (ว่างหรือไม่มีสิทธิ์อ่าน)", "{sec} (empty or no read access)"),
                                                 is_secret: true,
                                                 source: format!("Secret: {sec}"),
                                                 source_kind: EnvSourceKind::Secret(sec.to_string()),
@@ -362,7 +362,7 @@ pub fn spawn_update_env(
             }
             EnvSourceKind::Demo => {
                 let _ = tx.send(K8sEvent::ActionResult {
-                    message: format!("(Demo) อัปเดต {key} = {new_value} แล้ว"),
+                    message: crate::tf!("(Demo) อัปเดต {key} = {new_value} แล้ว", "(Demo) Updated {key} = {new_value}"),
                     ok: true,
                 });
                 wake();
@@ -378,22 +378,22 @@ pub fn spawn_update_env(
                         .output();
                 }
                 let msg = if restart_after {
-                    format!("บันทึก ENV {key} และสั่ง Restart {deploy} สำเร็จ")
+                    crate::tf!("บันทึก ENV {key} และสั่ง Restart {deploy} สำเร็จ", "Saved ENV {key} and restarted {deploy}")
                 } else {
-                    format!("บันทึก ENV {key} สำเร็จ (Restart เพื่อให้ Pod รับค่าใหม่)")
+                    crate::tf!("บันทึก ENV {key} สำเร็จ (Restart เพื่อให้ Pod รับค่าใหม่)", "Saved ENV {key} (restart for pods to pick it up)")
                 };
                 let _ = tx.send(K8sEvent::ActionResult { message: msg, ok: true });
             }
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
                 let _ = tx.send(K8sEvent::ActionResult {
-                    message: format!("บันทึก ENV {key} ไม่สำเร็จ: {err}"),
+                    message: crate::tf!("บันทึก ENV {key} ไม่สำเร็จ: {err}", "Could not save ENV {key}: {err}"),
                     ok: false,
                 });
             }
             Err(e) => {
                 let _ = tx.send(K8sEvent::ActionResult {
-                    message: format!("เรียก kubectl ไม่สำเร็จ: {e}"),
+                    message: crate::tf!("เรียก kubectl ไม่สำเร็จ: {e}", "Could not run kubectl: {e}"),
                     ok: false,
                 });
             }
@@ -518,13 +518,13 @@ pub fn spawn_fetch_logs(
             Ok(o) if o.status.success() => {
                 let s = String::from_utf8_lossy(&o.stdout).to_string();
                 if s.trim().is_empty() {
-                    "(ไม่มี log ในช่วงเวลาที่เลือก)".to_string()
+                    crate::tr!("(ไม่มี log ในช่วงเวลาที่เลือก)", "(No logs in the selected time range)").to_string()
                 } else {
                     s
                 }
             }
-            Ok(o) => format!("ไม่สามารถดึง log ได้:\n{}", String::from_utf8_lossy(&o.stderr)),
-            Err(e) => format!("เรียก kubectl ไม่สำเร็จ: {e}"),
+            Ok(o) => crate::tf!("ไม่สามารถดึง log ได้:\n{}", "Could not fetch logs:\n{}", String::from_utf8_lossy(&o.stderr)),
+            Err(e) => crate::tf!("เรียก kubectl ไม่สำเร็จ: {e}", "Could not run kubectl: {e}"),
         };
         let _ = tx.send(K8sEvent::Logs { pod, text });
         wake();
@@ -542,9 +542,9 @@ pub fn spawn_restart_deploy(
             .args(["rollout", "restart", &format!("deploy/{deploy}"), "-n", &namespace, "--request-timeout=8s"])
             .output();
         let (ok, message) = match out {
-            Ok(o) if o.status.success() => (true, format!("สั่ง Restart {deploy} ใน {namespace} สำเร็จ")),
-            Ok(o) => (false, format!("Restart ไม่สำเร็จ: {}", String::from_utf8_lossy(&o.stderr).trim())),
-            Err(e) => (false, format!("เรียก kubectl ไม่สำเร็จ: {e}")),
+            Ok(o) if o.status.success() => (true, crate::tf!("สั่ง Restart {deploy} ใน {namespace} สำเร็จ", "Restarted {deploy} in {namespace}")),
+            Ok(o) => (false, crate::tf!("Restart ไม่สำเร็จ: {}", "Restart failed: {}", String::from_utf8_lossy(&o.stderr).trim())),
+            Err(e) => (false, crate::tf!("เรียก kubectl ไม่สำเร็จ: {e}", "Could not run kubectl: {e}")),
         };
         let _ = tx.send(K8sEvent::ActionResult { message, ok });
         wake();
@@ -588,9 +588,9 @@ fn fetch_snapshot_blocking(env: EnvKind, namespace: &str) -> ClusterSnapshot {
         }
         Ok(o) => {
             let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-            demo_snapshot(env, namespace, &context, Some(format!("kubectl error (แสดงข้อมูลตัวอย่างแทน): {err}")))
+            demo_snapshot(env, namespace, &context, Some(crate::tf!("kubectl error (แสดงข้อมูลตัวอย่างแทน): {err}", "kubectl error (showing sample data instead): {err}")))
         }
-        Err(e) => demo_snapshot(env, namespace, &context, Some(format!("เรียก kubectl ไม่ได้ (แสดงข้อมูลตัวอย่างแทน): {e}"))),
+        Err(e) => demo_snapshot(env, namespace, &context, Some(crate::tf!("เรียก kubectl ไม่ได้ (แสดงข้อมูลตัวอย่างแทน): {e}", "Could not run kubectl (showing sample data instead): {e}"))),
     }
 }
 
@@ -647,7 +647,7 @@ fn fetch_pod_top(namespace: &str) -> BTreeMap<String, String> {
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 3 {
-            map.insert(parts[0].to_string(), format!("ใช้จริง: CPU {} • RAM {}", parts[1], parts[2]));
+            map.insert(parts[0].to_string(), crate::tf!("ใช้จริง: CPU {} • RAM {}", "Usage: CPU {} • RAM {}", parts[1], parts[2]));
         }
     }
     map
@@ -903,7 +903,7 @@ fn parse_k8s_list(
         mermaid_diagram,
         is_demo: false,
         error: None,
-        updated_at: "เมื่อสักครู่".into(),
+        updated_at: crate::tr!("เมื่อสักครู่", "just now").into(),
     })
 }
 
@@ -933,24 +933,24 @@ fn compute_health(ready: i64, desired: i64, pods: &[PodInfo]) -> Health {
 
 fn explain_pod(phase: &str, ready: bool, restarts: i64, reason: &str) -> String {
     if ready && restarts == 0 {
-        return "ทำงานปกติ พร้อมรับ traffic".into();
+        return crate::tr!("ทำงานปกติ พร้อมรับ traffic", "Healthy, serving traffic").into();
     }
     if reason.contains("CrashLoopBackOff") {
-        return "แอปเปิดไม่ขึ้นแล้วรีสตาร์ทซ้ำ — แนะนำกดดู Log เพื่อเช็ค error".into();
+        return crate::tr!("แอปเปิดไม่ขึ้นแล้วรีสตาร์ทซ้ำ — แนะนำกดดู Log เพื่อเช็ค error", "App keeps crashing and restarting — open the logs to check the error").into();
     }
     if reason.contains("ImagePull") || reason.contains("ErrImage") {
-        return "ดึง Docker Image ไม่สำเร็จ — เช็คชื่อ image หรือสิทธิ์ registry".into();
+        return crate::tr!("ดึง Docker Image ไม่สำเร็จ — เช็คชื่อ image หรือสิทธิ์ registry", "Could not pull the image — check the image name or registry access").into();
     }
     if reason.contains("ContainerCreating") || reason.contains("PodInitializing") {
-        return "กำลังสร้าง Container และเริ่มต้นทำงาน...".into();
+        return crate::tr!("กำลังสร้าง Container และเริ่มต้นทำงาน...", "Creating the container and starting...").into();
     }
     if reason.contains("Pending") || phase == "Pending" {
-        return "รอเครื่องว่าง (CPU/Memory อาจไม่พอ)".into();
+        return crate::tr!("รอเครื่องว่าง (CPU/Memory อาจไม่พอ)", "Waiting for a node (CPU/memory may be short)").into();
     }
     if restarts > 0 {
-        return format!("เคยรีสตาร์ทไป {restarts} ครั้ง (สถานะล่าสุด: {reason})");
+        return crate::tf!("เคยรีสตาร์ทไป {restarts} ครั้ง (สถานะล่าสุด: {reason})", "Restarted {restarts} times (last state: {reason})");
     }
-    format!("สถานะ: {phase} ({reason})")
+    crate::tf!("สถานะ: {phase} ({reason})", "Status: {phase} ({reason})")
 }
 
 fn build_summary(role: NodeRole, health: Health, ready: i64, desired: i64, hosts: &[String]) -> String {
@@ -959,7 +959,7 @@ fn build_summary(role: NodeRole, health: Health, ready: i64, desired: i64, hosts
     } else {
         format!(" • {}", hosts[0])
     };
-    format!("{} ({ready}/{desired} พร้อมใช้){host_note} — {}", role.label(), health.simple_thai())
+    crate::tf!("{} ({ready}/{desired} พร้อมใช้){host_note} — {}", "{} ({ready}/{desired} ready){host_note} — {}", role.label(), health.simple_thai())
 }
 
 pub fn build_mermaid(
@@ -1021,13 +1021,13 @@ fn parse_pod_resources(containers: &Value) -> (String, String) {
         (Some(r), Some(l)) => format!("CPU Req {r} / Lim {l}"),
         (Some(r), None) => format!("CPU Req {r}"),
         (None, Some(l)) => format!("CPU Lim {l}"),
-        (None, None) => "CPU: ไม่จำกัด".into(),
+        (None, None) => crate::tr!("CPU: ไม่จำกัด", "CPU: unlimited").into(),
     };
     let mem = match (mem_reqs.first(), mem_lims.first()) {
         (Some(r), Some(l)) => format!("RAM Req {r} / Lim {l}"),
         (Some(r), None) => format!("RAM Req {r}"),
         (None, Some(l)) => format!("RAM Lim {l}"),
-        (None, None) => "RAM: ไม่จำกัด".into(),
+        (None, None) => crate::tr!("RAM: ไม่จำกัด", "RAM: unlimited").into(),
     };
     (cpu, mem)
 }
@@ -1120,19 +1120,19 @@ pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option
             ports: "3010".into(),
             hosts: vec![format!("game-service.handler.{domain_suffix}")],
             connects_to: vec![format!("{prefix}-redis-srv")],
-            summary: "API / Service (1/1 พร้อมใช้) — ทำงานปกติ".into(),
+            summary: crate::tr!("API / Service (1/1 พร้อมใช้) — ทำงานปกติ", "API / Service (1/1 ready) — healthy").into(),
             pods: vec![PodInfo {
                 name: format!("{prefix}-game-service-depl-7f9b8c"),
                 phase: "Running".into(),
                 ready: true,
                 restarts: 0,
                 reason: "Running".into(),
-                explanation: "ทำงานปกติ พร้อมรับ traffic".into(),
+                explanation: crate::tr!("ทำงานปกติ พร้อมรับ traffic", "Healthy, serving traffic").into(),
                 node_name: "gke-aombet-pool-1".into(),
                 node_spec: "e2-standard-4 • 4 vCPU / 16.0 GB RAM".into(),
                 cpu_spec: "CPU Req 100m / Lim 500m".into(),
                 mem_spec: "RAM Req 128Mi / Lim 512Mi".into(),
-                live_usage: "ใช้จริง: CPU 18m • RAM 164Mi".into(),
+                live_usage: crate::tr!("ใช้จริง: CPU 18m • RAM 164Mi", "Usage: CPU 18m • RAM 164Mi").into(),
             }],
         },
         ServiceInfo {
@@ -1146,19 +1146,19 @@ pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option
             ports: "3010".into(),
             hosts: vec![format!("pg.handler.{domain_suffix}")],
             connects_to: vec![format!("{prefix}-redis-srv")],
-            summary: "API / Service (1/1 พร้อมใช้) — ทำงานปกติ".into(),
+            summary: crate::tr!("API / Service (1/1 พร้อมใช้) — ทำงานปกติ", "API / Service (1/1 ready) — healthy").into(),
             pods: vec![PodInfo {
                 name: format!("{prefix}-pg-depl-5d4a2b"),
                 phase: "Running".into(),
                 ready: true,
                 restarts: 0,
                 reason: "Running".into(),
-                explanation: "ทำงานปกติ พร้อมรับ traffic".into(),
+                explanation: crate::tr!("ทำงานปกติ พร้อมรับ traffic", "Healthy, serving traffic").into(),
                 node_name: "gke-aombet-pool-1".into(),
                 node_spec: "e2-standard-4 • 4 vCPU / 16.0 GB RAM".into(),
                 cpu_spec: "CPU Req 100m / Lim 500m".into(),
                 mem_spec: "RAM Req 128Mi / Lim 512Mi".into(),
-                live_usage: "ใช้จริง: CPU 12m • RAM 142Mi".into(),
+                live_usage: crate::tr!("ใช้จริง: CPU 12m • RAM 142Mi", "Usage: CPU 12m • RAM 142Mi").into(),
             }],
         },
         ServiceInfo {
@@ -1173,9 +1173,9 @@ pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option
             hosts: vec![format!("jili.handler.{domain_suffix}")],
             connects_to: vec![format!("{prefix}-hangfire-redis-srv")],
             summary: if env == EnvKind::Stg {
-                "API / Service (1/1 พร้อมใช้) — มีรีสตาร์ท 2 ครั้ง".into()
+                crate::tr!("API / Service (1/1 พร้อมใช้) — มีรีสตาร์ท 2 ครั้ง", "API / Service (1/1 ready) — restarted 2 times").into()
             } else {
-                "API / Service (1/1 พร้อมใช้) — ทำงานปกติ".into()
+                crate::tr!("API / Service (1/1 พร้อมใช้) — ทำงานปกติ", "API / Service (1/1 ready) — healthy").into()
             },
             pods: vec![PodInfo {
                 name: format!("{prefix}-jili-depl-9c1e3f"),
@@ -1184,15 +1184,15 @@ pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option
                 restarts: if env == EnvKind::Stg { 2 } else { 0 },
                 reason: "Running".into(),
                 explanation: if env == EnvKind::Stg {
-                    "เคยรีสตาร์ทไป 2 ครั้ง".into()
+                    crate::tr!("เคยรีสตาร์ทไป 2 ครั้ง", "Restarted 2 times").into()
                 } else {
-                    "ทำงานปกติ พร้อมรับ traffic".into()
+                    crate::tr!("ทำงานปกติ พร้อมรับ traffic", "Healthy, serving traffic").into()
                 },
                 node_name: "gke-aombet-pool-2".into(),
                 node_spec: "e2-standard-4 • 4 vCPU / 16.0 GB RAM".into(),
                 cpu_spec: "CPU Req 100m / Lim 500m".into(),
                 mem_spec: "RAM Req 128Mi / Lim 512Mi".into(),
-                live_usage: "ใช้จริง: CPU 24m • RAM 189Mi".into(),
+                live_usage: crate::tr!("ใช้จริง: CPU 24m • RAM 189Mi", "Usage: CPU 24m • RAM 189Mi").into(),
             }],
         },
         ServiceInfo {
@@ -1206,7 +1206,7 @@ pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option
             ports: "-".into(),
             hosts: vec![],
             connects_to: vec![format!("{prefix}-hangfire-redis-srv")],
-            summary: "Worker / Cron (1/1 พร้อมใช้) — ทำงานปกติ".into(),
+            summary: crate::tr!("Worker / Cron (1/1 พร้อมใช้) — ทำงานปกติ", "Worker / Cron (1/1 ready) — healthy").into(),
             pods: vec![],
         },
         ServiceInfo {
@@ -1220,7 +1220,7 @@ pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option
             ports: "6379".into(),
             hosts: vec![],
             connects_to: vec![],
-            summary: "Redis / Cache (1/1 พร้อมใช้) — ทำงานปกติ".into(),
+            summary: crate::tr!("Redis / Cache (1/1 พร้อมใช้) — ทำงานปกติ", "Redis / Cache (1/1 ready) — healthy").into(),
             pods: vec![],
         },
     ];

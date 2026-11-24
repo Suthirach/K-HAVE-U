@@ -20,11 +20,11 @@ pub fn view(s: &AppState, k: &Kit) -> El {
 
     let (title, subtitle) = match &s.selected_project {
         None => (
-            "เลือก Project",
-            "เลือก GCP Project ที่ต้องการดู แล้วเลือก GKE cluster ในขั้นตอนถัดไป".to_string(),
+            crate::tr!("เลือก Project", "Choose project"),
+            crate::tr!("เลือก GCP Project ที่ต้องการดู แล้วเลือก GKE cluster ในขั้นตอนถัดไป", "Choose a GCP project, then a GKE cluster in the next step").to_string(),
         ),
         Some(p) => (
-            "เลือก Cluster",
+            crate::tr!("เลือก Cluster", "Choose cluster"),
             format!("Project: {} ({})", p.name, p.id),
         ),
     };
@@ -53,9 +53,9 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     if s.selected_project.is_none() {
         rows = s.projects.len();
         if s.projects_loading {
-            list = list.child(note("กำลังโหลดรายชื่อ Project จาก gcloud...", k));
+            list = list.child(crate::ui::owl_loader::small(s.loader_t, crate::tr!("กำลังโหลดรายชื่อ Project", "Loading projects"), k));
         } else if s.projects.is_empty() && s.gcp_error.is_none() {
-            list = list.child(note("ไม่พบ Project ในบัญชีนี้", k));
+            list = list.child(note(crate::tr!("ไม่พบ Project ในบัญชีนี้", "No projects in this account"), k));
         }
         for p in &s.projects {
             let picked = p.clone();
@@ -69,10 +69,10 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     } else {
         rows = s.clusters.len();
         if s.clusters_loading {
-            list = list.child(note("กำลังโหลดรายชื่อ GKE cluster...", k));
+            list = list.child(crate::ui::owl_loader::small(s.loader_t, crate::tr!("กำลังโหลดรายชื่อ cluster", "Loading clusters"), k));
         } else if s.clusters.is_empty() && s.gcp_error.is_none() {
             list = list.child(note(
-                "ไม่พบ GKE cluster ใน Project นี้ (ตรวจว่าเปิด Kubernetes Engine API แล้ว)",
+                crate::tr!("ไม่พบ GKE cluster ใน Project นี้ (ตรวจว่าเปิด Kubernetes Engine API แล้ว)", "No GKE clusters in this project (check that the Kubernetes Engine API is enabled)"),
                 k,
             ));
         }
@@ -80,7 +80,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
             let picked = cl.clone();
             let busy = s.connecting_cluster.as_deref() == Some(cl.name.as_str());
             let label = if busy {
-                format!("กำลังเชื่อมต่อ {} ...", cl.name)
+                crate::tf!("กำลังเชื่อมต่อ {} ...", "Connecting to {} ...", cl.name)
             } else {
                 format!("{}  ·  {}  ·  {}", cl.name, cl.location, cl.status)
             };
@@ -146,7 +146,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     if s.selected_project.is_some() {
         actions = actions.child(pill_icon_btn(
             &icons::ARROW_LEFT,
-            "ย้อนกลับ",
+            crate::tr!("ย้อนกลับ", "Back"),
             PillVariant::Glass,
             PillSize::Sm,
             |s: &mut AppState| s.back_to_projects(),
@@ -154,7 +154,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     } else {
         actions = actions.child(pill_icon_btn(
             &icons::REFRESH,
-            "โหลดใหม่",
+            crate::tr!("โหลดใหม่", "Reload"),
             PillVariant::Glass,
             PillSize::Sm,
             |s: &mut AppState| s.load_projects(),
@@ -163,7 +163,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     actions = actions
         .child(el().grow(1.0))
         .child(pill_btn(
-            "ข้าม (ใช้ kubectl context ปัจจุบัน)",
+            crate::tr!("ข้าม (ใช้ kubectl context ปัจจุบัน)", "Skip (use the current kubectl context)"),
             PillVariant::Glass,
             PillSize::Sm,
             |s: &mut AppState| s.skip_project_picker(),

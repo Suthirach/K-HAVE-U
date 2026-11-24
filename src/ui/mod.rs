@@ -1,6 +1,7 @@
 pub mod icons;
 pub mod login;
 pub mod overview;
+pub mod owl_loader;
 pub mod pill;
 pub mod project_picker;
 pub mod service_detail;
@@ -18,7 +19,7 @@ use crate::state::{AppState, Page, ServiceTab, Tab};
 use crate::update::UpdateState;
 use icons::mono_icon;
 use pill::{
-    PillSize, PillVariant, interactive, pill_icon_btn, pill_icon_only_tx, segmented_group,
+    PillSize, PillVariant, interactive, pill_btn, pill_icon_btn, pill_icon_only_tx, segmented_group,
     soft_badge,
 };
 use rune::{Color, El, Tx, col, el, row, text};
@@ -50,19 +51,12 @@ pub fn env_color(env: EnvKind) -> Color {
     }
 }
 
-/// Custom K9s Studio monochrome mark rendered cleanly on GPU.
+/// Custom Klar monochrome mark rendered cleanly on GPU.
 pub fn app_icon() -> El {
     el().key("app-icon")
         .size(26.0, 26.0)
-        .radius(8.0)
-        .fill(theme::accent_primary_bg())
-        .border(1.0, theme::accent_primary_bg())
         .center()
-        .child(
-            text("K9")
-                .font(rune::TextStyle::new(11.0, 700.0).tracking(-0.2))
-                .color(theme::accent_primary_fg()),
-        )
+        .child(icons::mono_icon(&icons::KLAR_MARK, 26.0, theme::brand_mark()))
         .a11y_hidden()
 }
 
@@ -72,7 +66,7 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
     let breadcrumb = if !logged_in {
         "Sign In".to_string()
     } else if s.picking_project {
-        "เลือก Project".to_string()
+        crate::tr!("เลือก Project", "Choose project").to_string()
     } else {
         match s.page {
             Page::Overview => "Overview · STG + PROD".to_string(),
@@ -98,7 +92,7 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
         .window_drag()
         .child(app_icon())
         .child(
-            text("K9s Studio")
+            text("Klar")
                 .font(k.ty.body_medium)
                 .color(theme::text_strong()),
         )
@@ -107,8 +101,17 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
             theme::glass_card(),
             theme::text_secondary(),
             Some(theme::border_subtle()),
-        ))
-        .child(el().grow(1.0));
+        ));
+    if logged_in && !s.picking_project && s.can_go_back() {
+        bar = bar.child(pill_icon_btn(
+            &icons::ARROW_LEFT,
+            crate::tr!("ย้อนกลับ", "Back"),
+            PillVariant::Glass,
+            PillSize::Sm,
+            |s: &mut AppState| s.go_back(),
+        ));
+    }
+    bar = bar.child(el().grow(1.0));
 
     if let Some(u) = &s.session {
         bar = bar
@@ -122,7 +125,7 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
                 &icons::SWITCH_ARROWS,
                 match &s.active_project {
                     Some(p) => format!("Project: {p}"),
-                    None => "เลือก Project".to_string(),
+                    None => crate::tr!("เลือก Project", "Choose project").to_string(),
                 },
                 PillVariant::Glass,
                 PillSize::Sm,
@@ -130,7 +133,7 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
             ))
             .child(pill_icon_btn(
                 &icons::LOGOUT,
-                "ออกจากระบบ",
+                crate::tr!("ออกจากระบบ", "Sign out"),
                 PillVariant::Glass,
                 PillSize::Sm,
                 |s: &mut AppState| s.logout(),
@@ -141,7 +144,7 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
         UpdateState::Available(version) => {
             bar = bar.child(pill_icon_btn(
                 &icons::DOWNLOAD,
-                format!("อัปเดตเป็น v{version}"),
+                crate::tf!("อัปเดตเป็น v{version}", "Update to v{version}"),
                 PillVariant::Primary,
                 PillSize::Sm,
                 |s: &mut AppState| s.start_update(),
@@ -149,7 +152,7 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
         }
         UpdateState::Installing(_) => {
             bar = bar.child(soft_badge(
-                "กำลังอัปเดต...",
+                crate::tr!("กำลังอัปเดต...", "Updating..."),
                 theme::metric_box_soft(),
                 theme::text_muted(),
                 Some(theme::border_subtle()),
@@ -157,6 +160,20 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
         }
         UpdateState::Idle => {}
     }
+
+    bar = bar.child(pill_btn(
+        if s.lang_th { "TH" } else { "EN" },
+        PillVariant::Glass,
+        PillSize::Sm,
+        |s: &mut AppState| s.toggle_lang(),
+    ));
+    bar = bar.child(pill_icon_only_tx(
+        if s.dark { &icons::SUN } else { &icons::MOON },
+        crate::tr!("สลับธีมสว่าง/มืด", "Toggle light/dark theme"),
+        PillVariant::Glass,
+        PillSize::Sm,
+        |s: &mut AppState, _tx: &mut Tx| s.toggle_theme(),
+    ));
 
     bar.child(
         row()
@@ -204,10 +221,14 @@ pub fn app_shell(s: &AppState, k: &Kit) -> El {
         Page::Overview => overview::view(s, k),
         Page::Namespace => {
             let sub_bar = namespace_subbar(s, k);
-            let inner = match s.tab {
-                Tab::Topology => topology::view(s, k),
-                Tab::Services => services::view(s, k),
-                Tab::K9sCli => terminal::view(s, k),
+            let inner = if s.namespace_loading() {
+                owl_loader::view(s.loader_t, crate::tr!("กำลังโหลดข้อมูล namespace", "Loading namespace"), k)
+            } else {
+                match s.tab {
+                    Tab::Topology => topology::view(s, k),
+                    Tab::Services => services::view(s, k),
+                    Tab::K9sCli => terminal::view(s, k),
+                }
             };
             col()
                 .w_full()
@@ -252,7 +273,7 @@ pub fn app_shell(s: &AppState, k: &Kit) -> El {
                 .child(text(msg.clone()).font(k.ty.text_small_medium).color(fg).grow(1.0))
                 .child(pill_icon_btn(
                     &icons::CLOSE,
-                    "ปิด",
+                    crate::tr!("ปิด", "Close"),
                     PillVariant::Glass,
                     PillSize::Sm,
                     |s: &mut AppState| s.banner = None,
@@ -366,12 +387,12 @@ fn workspace_tab_bar(s: &AppState, k: &Kit) -> El {
         .px(16.0)
         .gap(8.0)
         .center_y()
-        .fill(theme::hex("#13110f"))
+        .fill(theme::bg_tabbar())
         .border_sides([0.0, 0.0, 1.0, 0.0], theme::border_subtle())
         .child(tabs_row)
         .child(pill_icon_btn(
             &icons::PLUS,
-            "Tab ใหม่",
+            crate::tr!("Tab ใหม่", "New tab"),
             PillVariant::Glass,
             PillSize::Sm,
             |s: &mut AppState| s.new_workspace_tab(),
@@ -432,7 +453,7 @@ fn namespace_subbar(s: &AppState, k: &Kit) -> El {
         .child(el().grow(1.0))
         .child(pill_icon_btn(
             &icons::REFRESH,
-            if s.loading { "กำลังโหลด..." } else { "Refresh" },
+            if s.loading { crate::tr!("กำลังโหลด...", "Loading...") } else { "Refresh" },
             PillVariant::Chrome,
             PillSize::Sm,
             |s: &mut AppState| s.refresh_cluster(),

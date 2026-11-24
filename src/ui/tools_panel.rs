@@ -34,7 +34,7 @@ pub fn view(s: &AppState, k: &Kit) -> Option<El> {
     if s.tools_installing {
         panel = panel
             .child(
-                text("กำลังติดตั้งเครื่องมือ...")
+                text(crate::tr!("กำลังติดตั้งเครื่องมือ...", "Installing tools..."))
                     .font(k.ty.text_small_medium)
                     .color(theme::text_base()),
             )
@@ -47,8 +47,8 @@ pub fn view(s: &AppState, k: &Kit) -> Option<El> {
         if !s.tools_missing.is_empty() {
             panel = panel
                 .child(
-                    text(format!(
-                        "ยังไม่พบเครื่องมือที่ต้องใช้: {}",
+                    text(crate::tf!(
+                        "ยังไม่พบเครื่องมือที่ต้องใช้: {}", "Missing required tools: {}",
                         s.tools_missing.join(", ")
                     ))
                     .font(k.ty.text_small_medium)
@@ -56,7 +56,7 @@ pub fn view(s: &AppState, k: &Kit) -> Option<El> {
                 )
                 .child(pill_icon_btn(
                     &icons::DOWNLOAD,
-                    "ติดตั้งให้อัตโนมัติ",
+                    crate::tr!("ติดตั้งให้อัตโนมัติ", "Install automatically"),
                     PillVariant::Primary,
                     PillSize::Sm,
                     |s: &mut AppState| s.install_tools(),

@@ -65,12 +65,12 @@ fn loading(s: &AppState, k: &Kit) -> El {
     let message = if s.tools_installing {
         short(&s.tools_log)
     } else {
-        "กำลังตรวจสอบเครื่องมือ...".to_string()
+        crate::tr!("กำลังตรวจสอบเครื่องมือ...", "Checking tools...").to_string()
     };
     card()
         .child(header(
-            "กำลังติดตั้ง",
-            "ไม่ต้องกดอะไร เสร็จแล้วจะไปหน้าเข้าสู่ระบบเอง",
+            crate::tr!("กำลังติดตั้ง", "Installing"),
+            crate::tr!("ไม่ต้องกดอะไร เสร็จแล้วจะไปหน้าเข้าสู่ระบบเอง", "Nothing to do here; you'll go to sign-in when it's done"),
             k,
         ))
         .child(
@@ -103,16 +103,16 @@ fn loading(s: &AppState, k: &Kit) -> El {
 fn form(s: &AppState, k: &Kit) -> El {
     let c = &k.c;
     let tools_line: El = if !s.tools_checked {
-        text("กำลังตรวจสอบเครื่องมือ...")
+        text(crate::tr!("กำลังตรวจสอบเครื่องมือ...", "Checking tools..."))
             .font(k.ty.small_medium)
             .color(theme::text_muted())
     } else if s.tools_missing.is_empty() {
-        text("พร้อมแล้ว: พบ kubectl, k9s และ gcloud ครบ")
+        text(crate::tr!("พร้อมแล้ว: พบ kubectl, k9s และ gcloud ครบ", "Ready: kubectl, k9s and gcloud found"))
             .font(k.ty.small_medium)
             .color(theme::ok_fg())
     } else {
-        text(format!(
-            "จะติดตั้งให้อัตโนมัติเมื่อกดตกลง: {}",
+        text(crate::tf!(
+            "จะติดตั้งให้อัตโนมัติเมื่อกดตกลง: {}", "Will be installed when you press OK: {}",
             s.tools_missing.join(", ")
         ))
         .font(k.ty.small_medium)
@@ -120,9 +120,9 @@ fn form(s: &AppState, k: &Kit) -> El {
     };
 
     let placeholder = if s.update_token.is_some() {
-        "มี key แล้ว (วางอันใหม่เพื่อเปลี่ยน หรือเว้นว่าง)"
+        crate::tr!("มี key แล้ว (วางอันใหม่เพื่อเปลี่ยน หรือเว้นว่าง)", "Key saved (paste a new one to replace it, or leave empty)")
     } else {
-        "วาง GitHub token (ไม่บังคับ)"
+        crate::tr!("วาง GitHub token (ไม่บังคับ)", "Paste a GitHub token (optional)")
     };
 
     let mut body = card()
@@ -131,13 +131,13 @@ fn form(s: &AppState, k: &Kit) -> El {
                 .gap(10.0)
                 .center_y()
                 .child(header(
-                    "ตั้งค่าเริ่มต้น",
-                    "วาง key แล้วกดตกลง ที่เหลือระบบทำให้เอง",
+                    crate::tr!("ตั้งค่าเริ่มต้น", "Setup"),
+                    crate::tr!("วาง key แล้วกดตกลง ที่เหลือระบบทำให้เอง", "Paste the key and press OK; the rest is automatic"),
                     k,
                 ))
                 .child(el().grow(1.0))
                 .child(soft_badge(
-                    "ครั้งแรกเท่านั้น",
+                    crate::tr!("ครั้งแรกเท่านั้น", "First run only"),
                     theme::metric_box_soft(),
                     theme::text_muted(),
                     Some(theme::border_subtle()),
@@ -147,7 +147,7 @@ fn form(s: &AppState, k: &Kit) -> El {
             col()
                 .gap(6.0)
                 .child(
-                    text("Key สำหรับอัปเดตแอป")
+                    text(crate::tr!("Key สำหรับอัปเดตแอป", "App update key"))
                         .font(k.ty.text_small_medium)
                         .color(theme::text_base()),
                 )
@@ -165,7 +165,7 @@ fn form(s: &AppState, k: &Kit) -> El {
 
     if let Some(err) = &s.tools_error {
         body = body.child(
-            text(format!("ติดตั้งไม่สำเร็จ: {}", short(err)))
+            text(crate::tf!("ติดตั้งไม่สำเร็จ: {}", "Install failed: {}", short(err)))
                 .font(k.ty.small_medium)
                 .color(c.danger.fg),
         );
@@ -173,14 +173,14 @@ fn form(s: &AppState, k: &Kit) -> El {
 
     body = body.child(pill_icon_btn(
         &icons::ARROW_RIGHT,
-        if s.tools_error.is_some() { "ลองใหม่" } else { "ตกลง" },
+        if s.tools_error.is_some() { crate::tr!("ลองใหม่", "Try again") } else { crate::tr!("ตกลง", "OK") },
         PillVariant::Primary,
         PillSize::Lg,
         |s: &mut AppState| s.setup_confirm(),
     ));
     if s.tools_error.is_some() {
         body = body.child(pill_btn(
-            "ข้ามไปก่อน",
+            crate::tr!("ข้ามไปก่อน", "Skip for now"),
             PillVariant::Glass,
             PillSize::Sm,
             |s: &mut AppState| s.finish_setup(),

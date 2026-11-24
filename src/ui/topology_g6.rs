@@ -18,7 +18,21 @@ fn topology_g6_html() -> &'static str {
             "@font-face {{ font-family: \"Plus Jakarta Sans\"; font-style: normal; font-weight: 200 800; \
              font-display: block; src: url(data:font/ttf;base64,{font}) format(\"truetype\"); }}"
         );
-        TOPOLOGY_G6_HTML.replacen("/*__K9S_FONT_FACE__*/", &face, 1)
+        // Thai glyphs come from IBM Plex Sans Thai (same font as the native screens).
+        let mut faces = face;
+        for (weight, bytes) in [
+            (400, crate::ui::theme::THAI_REGULAR),
+            (500, crate::ui::theme::THAI_MEDIUM),
+            (600, crate::ui::theme::THAI_SEMIBOLD),
+            (700, crate::ui::theme::THAI_BOLD),
+        ] {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+            faces.push_str(&format!(
+                " @font-face {{ font-family: \"IBM Plex Sans Thai\"; font-style: normal; font-weight: {weight}; \
+                 font-display: block; src: url(data:font/ttf;base64,{b64}) format(\"truetype\"); }}"
+            ));
+        }
+        TOPOLOGY_G6_HTML.replacen("/*__K9S_FONT_FACE__*/", &faces, 1)
     })
 }
 
@@ -747,6 +761,7 @@ impl G6WebViewHost {
     fn should_show(state: &AppState) -> bool {
         state.session.is_some()
             && !state.picking_project
+            && !state.namespace_loading()
             && state.g6_window_visible
             && state.page == Page::Namespace
             && state.tab == Tab::Topology
@@ -784,7 +799,7 @@ impl G6WebViewHost {
                     self.last_bounds = Some(rect);
                 }
                 Err(err) => {
-                    eprintln!("k9s-ui: failed to initialize wry WebView for G6 topology: {err}");
+                    eprintln!("klar: failed to initialize wry WebView for G6 topology: {err}");
                     self.failed_init = true;
                     let _ = state
                         .g6_tx
@@ -828,11 +843,16 @@ impl G6WebViewHost {
             return;
         }
 
-        let sig = snapshot_signature(&state.snapshot);
+        // The theme is part of the signature so switching light/dark redraws the diagram.
+        let theme = if crate::ui::theme::is_dark() { "dark" } else { "light" };
+        let lang = if crate::i18n::is_thai() { "th" } else { "en" };
+        let sig = format!("{}|{theme}|{lang}", snapshot_signature(&state.snapshot));
         if self.last_sig.as_deref() != Some(sig.as_str()) {
             let payload = build_g6_topology(&state.snapshot, state.selected_service.as_deref());
             if let Ok(json) = serde_json::to_string(&payload) {
-                let js = format!("window.__k9sTopology && window.__k9sTopology.setData({json});");
+                let js = format!(
+                    "document.documentElement.lang = '{lang}'; window.__klarSetTheme && window.__klarSetTheme('{theme}'); window.__k9sTopology && window.__k9sTopology.setData({json});"
+                );
                 if wv.evaluate_script(&js).is_ok() {
                     self.last_sig = Some(sig);
                     self.last_selected = Some(state.selected_service.clone());
@@ -869,13 +889,19 @@ impl G6WebViewHost {
         waker: Option<Waker>,
     ) -> Result<wry::WebView, String> {
         let bounds = wry_rect(rect);
+        // Start in the app's theme so the page never flashes the other colour while loading.
+        let dark = crate::ui::theme::is_dark();
+        let background = if dark { (17, 16, 14, 255) } else { (247, 244, 239, 255) };
+        let html = topology_g6_html()
+            .replacen("__KLAR_THEME__", if dark { "dark" } else { "light" }, 1)
+            .replacen("__KLAR_LANG__", if crate::i18n::is_thai() { "th" } else { "en" }, 1);
         win.with_raw_handle(move |raw_handle| {
             wry::WebViewBuilder::new()
                 .with_bounds(bounds)
                 .with_visible(true)
-                .with_background_color((17, 16, 14, 255))
+                .with_background_color(background)
                 .with_accept_first_mouse(true)
-                .with_html(topology_g6_html())
+                .with_html(html)
                 .with_ipc_handler(move |req| {
                     if let Ok(ev) = serde_json::from_str::<TopologyWebEvent>(req.body()) {
                         let _ = tx.send(ev);

@@ -77,6 +77,12 @@ pub static ARROW_DOWN: Icon = Icon {
     body: r#"<path d="M8 3.5V12.5M4.5 9L8 12.5L11.5 9" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
 
+pub static CHEVRON_DOWN: Icon = Icon {
+    name: "klar-chevron-down",
+    view: 16.0,
+    body: r#"<path d="M4.5 6.25L8 9.75L11.5 6.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};
+
 pub static MINUS: Icon = Icon {
     name: "k9s-minus",
     view: 16.0,
@@ -117,4 +123,36 @@ pub static INFO_CIRCLE: Icon = Icon {
     name: "k9s-info-circle",
     view: 16.0,
     body: r#"<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.35"/><path d="M8 7.2V11.2M8 4.8V5.1" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/>"#,
+};
+
+
+
+/// The Klar logo mark (owl), same shape as assets/icon/klar-icon.svg.
+pub static KLAR_MARK: Icon = Icon {
+    name: "klar-owl",
+    view: 760.0,
+    body: r#"<g transform="translate(-132,-182)"><g fill="currentColor">
+    <path stroke="currentColor" stroke-width="34" stroke-linejoin="round" d="M196,236 C296,320 410,340 512,330 C614,340 728,320 828,236 C822,352 762,410 672,432 C600,450 550,480 532,526 Q512,574 492,526 C474,480 424,450 352,432 C262,410 202,352 196,236 Z"/>
+    <circle cx="376" cy="580" r="60"/>
+    <circle cx="648" cy="580" r="60"/>
+    <path stroke="currentColor" stroke-width="22" stroke-linejoin="round" d="M480,644 L544,644 L512,700 Z"/>
+  </g>
+  <g fill="none" stroke="currentColor" stroke-width="46" stroke-linecap="round">
+    <path d="M490.6,538.3 A122,122 0 1,1 282.5,501.6"/><path d="M533.4,538.3 A122,122 0 1,0 741.5,501.6"/>
+    <path d="M226,690 C246,790 320,850 420,880"/>
+    <path d="M798,690 C778,790 704,850 604,880"/>
+  </g>
+</g>"#,
+};
+
+pub static SUN: Icon = Icon {
+    name: "klar-sun",
+    view: 16.0,
+    body: r#"<circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.35"/><path d="M8 1.5V3M8 13V14.5M1.5 8H3M13 8H14.5M3.4 3.4L4.5 4.5M11.5 11.5L12.6 12.6M3.4 12.6L4.5 11.5M11.5 4.5L12.6 3.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>"#,
+};
+
+pub static MOON: Icon = Icon {
+    name: "klar-moon",
+    view: 16.0,
+    body: r#"<path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8A5.6 5.6 0 1 0 13.2 9.6Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>"#,
 };

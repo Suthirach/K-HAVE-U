@@ -22,11 +22,11 @@ pub struct GkeCluster {
 fn run_gcloud(args: &[&str]) -> Result<Vec<u8>, String> {
     let out = gcloud_command(args)
         .output()
-        .map_err(|e| format!("เรียก gcloud ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก gcloud ไม่สำเร็จ: {e}", "Could not run gcloud: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(if err.is_empty() {
-            "gcloud ทำงานไม่สำเร็จ".to_string()
+            crate::tr!("gcloud ทำงานไม่สำเร็จ", "gcloud failed").to_string()
         } else {
             err
         });
@@ -36,7 +36,7 @@ fn run_gcloud(args: &[&str]) -> Result<Vec<u8>, String> {
 
 fn run_gcloud_json(args: &[&str]) -> Result<Value, String> {
     let stdout = run_gcloud(args)?;
-    serde_json::from_slice(&stdout).map_err(|e| format!("อ่านผลลัพธ์ gcloud ไม่ได้: {e}"))
+    serde_json::from_slice(&stdout).map_err(|e| crate::tf!("อ่านผลลัพธ์ gcloud ไม่ได้: {e}", "Could not read gcloud output: {e}"))
 }
 
 fn str_field(v: &Value, key: &str) -> String {

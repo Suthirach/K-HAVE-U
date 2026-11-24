@@ -13,9 +13,9 @@ pub const REPO: &str = "Suthirach/K-HAVE-U";
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(target_os = "macos")]
-const ASSET: &str = "K9s-Studio-Mac.dmg";
+const ASSET: &str = "Klar-Mac.dmg";
 #[cfg(target_os = "windows")]
-const ASSET: &str = "K9s-Studio-Windows-Setup.exe";
+const ASSET: &str = "Klar-Windows-Setup.exe";
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 const ASSET: &str = "";
 
@@ -74,7 +74,7 @@ fn write_settings(v: &Value) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    std::fs::write(&path, v.to_string()).map_err(|e| format!("บันทึกการตั้งค่าไม่ได้: {e}"))?;
+    std::fs::write(&path, v.to_string()).map_err(|e| crate::tf!("บันทึกการตั้งค่าไม่ได้: {e}", "Could not save settings: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -85,7 +85,7 @@ fn write_settings(v: &Value) -> Result<(), String> {
 
 /// GitHub token used to read releases of a private repo (env var first, then the settings file).
 pub fn load_token() -> Option<String> {
-    if let Ok(t) = std::env::var("K9S_STUDIO_GITHUB_TOKEN") {
+    if let Ok(t) = std::env::var("KLAR_GITHUB_TOKEN") {
         let t = t.trim().to_string();
         if !t.is_empty() {
             return Some(t);
@@ -105,7 +105,7 @@ pub fn save_token(token: &str) -> Result<(), String> {
 
 /// True once the first-run setup screen has been completed (or a token comes from the environment).
 pub fn setup_done() -> bool {
-    std::env::var("K9S_STUDIO_GITHUB_TOKEN")
+    std::env::var("KLAR_GITHUB_TOKEN")
         .map(|t| !t.trim().is_empty())
         .unwrap_or(false)
         || read_settings()["setup_done"].as_bool().unwrap_or(false)
@@ -133,20 +133,20 @@ fn api_latest(token: &str) -> Result<(String, Option<u64>), String> {
         cmd.arg("-H").arg(h);
     }
     cmd.arg(format!("https://api.github.com/repos/{REPO}/releases/latest"));
-    let out = cmd.output().map_err(|e| format!("เรียก curl ไม่สำเร็จ: {e}"))?;
+    let out = cmd.output().map_err(|e| crate::tf!("เรียก curl ไม่สำเร็จ: {e}", "Could not run curl: {e}"))?;
     let body = String::from_utf8_lossy(&out.stdout).to_string();
     let (json, code) = body.rsplit_once('\n').unwrap_or((body.as_str(), ""));
     match code.trim() {
         "200" => {}
         "401" | "403" => {
-            return Err("GitHub token ไม่ถูกต้อง หมดอายุ หรือไม่มีสิทธิ์อ่าน repo นี้".to_string());
+            return Err(crate::tr!("GitHub token ไม่ถูกต้อง หมดอายุ หรือไม่มีสิทธิ์อ่าน repo นี้", "GitHub token is invalid, expired, or cannot read this repo").to_string());
         }
         "404" => {
-            return Err("ไม่พบ Release (ยังไม่มี Release หรือ token ไม่มีสิทธิ์อ่าน repo นี้)".to_string());
+            return Err(crate::tr!("ไม่พบ Release (ยังไม่มี Release หรือ token ไม่มีสิทธิ์อ่าน repo นี้)", "No release found (none published yet, or the token cannot read this repo)").to_string());
         }
-        other => return Err(format!("GitHub ตอบกลับ {other}")),
+        other => return Err(crate::tf!("GitHub ตอบกลับ {other}", "GitHub answered {other}")),
     }
-    let v: Value = serde_json::from_str(json).map_err(|e| format!("อ่านข้อมูล Release ไม่ได้: {e}"))?;
+    let v: Value = serde_json::from_str(json).map_err(|e| crate::tf!("อ่านข้อมูล Release ไม่ได้: {e}", "Could not read the release: {e}"))?;
     let tag = v["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
     let asset_id = v["assets"]
         .as_array()
@@ -166,7 +166,7 @@ fn latest_version(token: Option<&str>) -> Result<Option<String>, String> {
         .args(["-sIL", "--max-time", "15", "-o", null, "-w", "%{url_effective}"])
         .arg(format!("https://github.com/{REPO}/releases/latest"))
         .output()
-        .map_err(|e| format!("เรียก curl ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก curl ไม่สำเร็จ: {e}", "Could not run curl: {e}"))?;
     let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
     Ok(url
         .split("/releases/tag/")
@@ -214,7 +214,7 @@ fn fetch_asset(dest: &Path, token: Option<&str>) -> Result<(), String> {
     match token.filter(|t| !t.is_empty()) {
         Some(t) => {
             let (_, id) = api_latest(t)?;
-            let id = id.ok_or_else(|| format!("ไม่พบไฟล์ {ASSET} ใน Release ล่าสุด"))?;
+            let id = id.ok_or_else(|| crate::tf!("ไม่พบไฟล์ {ASSET} ใน Release ล่าสุด", "{ASSET} not found in the latest release"))?;
             let url = format!("https://api.github.com/repos/{REPO}/releases/assets/{id}");
             download_with_headers(&url, dest, &api_headers(t, "application/octet-stream"))
         }
@@ -230,7 +230,7 @@ while kill -0 "$PID" 2>/dev/null; do sleep 0.5; done
 MNT="$(mktemp -d)"
 hdiutil attach -nobrowse -quiet -mountpoint "$MNT" "$DMG" || exit 1
 rm -rf "$DEST.new"
-if cp -R "$MNT/K9s Studio.app" "$DEST.new"; then
+if cp -R "$MNT/Klar.app" "$DEST.new"; then
   rm -rf "$DEST" && mv "$DEST.new" "$DEST"
 fi
 hdiutil detach -quiet "$MNT"
@@ -246,13 +246,13 @@ fn install_latest(token: Option<&str>) -> Result<(), String> {
         .ancestors()
         .find(|p| p.extension().map(|e| e == "app").unwrap_or(false))
         .map(|p| p.to_path_buf())
-        .ok_or_else(|| "ไม่ได้เปิดจากแอปที่ติดตั้ง (โหมดพัฒนา) จึงอัปเดตอัตโนมัติไม่ได้".to_string())?;
-    let dir = std::env::temp_dir().join("k9s-studio-update");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("สร้างโฟลเดอร์ชั่วคราวไม่ได้: {e}"))?;
+        .ok_or_else(|| crate::tr!("ไม่ได้เปิดจากแอปที่ติดตั้ง (โหมดพัฒนา) จึงอัปเดตอัตโนมัติไม่ได้", "Not running from an installed app (development mode), so it cannot update itself").to_string())?;
+    let dir = std::env::temp_dir().join("klar-update");
+    std::fs::create_dir_all(&dir).map_err(|e| crate::tf!("สร้างโฟลเดอร์ชั่วคราวไม่ได้: {e}", "Could not create a temporary folder: {e}"))?;
     let dmg = dir.join(ASSET);
     fetch_asset(&dmg, token)?;
     let script = dir.join("update.sh");
-    std::fs::write(&script, MAC_UPDATE_SCRIPT).map_err(|e| format!("เขียนสคริปต์อัปเดตไม่ได้: {e}"))?;
+    std::fs::write(&script, MAC_UPDATE_SCRIPT).map_err(|e| crate::tf!("เขียนสคริปต์อัปเดตไม่ได้: {e}", "Could not write the update script: {e}"))?;
     Command::new("sh")
         .arg(&script)
         .arg(std::process::id().to_string())
@@ -262,7 +262,7 @@ fn install_latest(token: Option<&str>) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("เริ่มตัวอัปเดตไม่ได้: {e}"))?;
+        .map_err(|e| crate::tf!("เริ่มตัวอัปเดตไม่ได้: {e}", "Could not start the updater: {e}"))?;
     Ok(())
 }
 
@@ -273,14 +273,14 @@ fn install_latest(token: Option<&str>) -> Result<(), String> {
     Command::new(&setup)
         .args(["/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS"])
         .spawn()
-        .map_err(|e| format!("เริ่มตัวติดตั้งไม่ได้: {e}"))?;
+        .map_err(|e| crate::tf!("เริ่มตัวติดตั้งไม่ได้: {e}", "Could not start the installer: {e}"))?;
     Ok(())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn install_latest(token: Option<&str>) -> Result<(), String> {
     let _ = token;
-    Err("ระบบนี้ยังไม่รองรับการอัปเดตอัตโนมัติ".to_string())
+    Err(crate::tr!("ระบบนี้ยังไม่รองรับการอัปเดตอัตโนมัติ", "Automatic updates aren't supported on this system").to_string())
 }
 
 #[cfg(test)]

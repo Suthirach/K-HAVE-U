@@ -58,7 +58,7 @@ pub struct GoogleAuthConfig {
 
 impl GoogleAuthConfig {
     pub fn load() -> Self {
-        let mut cfg = std::fs::read_to_string("k9s-ui.json")
+        let mut cfg = std::fs::read_to_string("klar.json")
             .ok()
             .and_then(|s| serde_json::from_str::<GoogleAuthConfig>(&s).ok())
             .unwrap_or_default();
@@ -109,7 +109,7 @@ pub fn default_accounts() -> Vec<UserAccount> {
 pub fn authenticate(accounts: &[UserAccount], username: &str, password: &str) -> Result<Session, String> {
     let u = username.trim();
     if u.is_empty() || password.is_empty() {
-        return Err("กรุณากรอก Username และ Password".into());
+        return Err(crate::tr!("กรุณากรอก Username และ Password", "Please enter a username and password").into());
     }
     for acc in accounts {
         if acc.username.eq_ignore_ascii_case(u) && acc.password == password {
@@ -120,7 +120,7 @@ pub fn authenticate(accounts: &[UserAccount], username: &str, password: &str) ->
             });
         }
     }
-    Err("Username หรือ Password ไม่ถูกต้อง".into())
+    Err(crate::tr!("Username หรือ Password ไม่ถูกต้อง", "Incorrect username or password").into())
 }
 
 pub fn spawn_google_login(
@@ -175,31 +175,31 @@ fn gcloud_google_login(force_browser: bool, cfg: &GoogleAuthConfig) -> Result<Se
     if force_browser {
         let status = gcloud_command(&["auth", "login", "--quiet"])
             .status()
-            .map_err(|e| format!("เรียก gcloud ไม่สำเร็จ: {e}"))?;
+            .map_err(|e| crate::tf!("เรียก gcloud ไม่สำเร็จ: {e}", "Could not run gcloud: {e}"))?;
         if !status.success() {
-            return Err("การเข้าสู่ระบบ Google ผ่าน browser ถูกยกเลิกหรือไม่สำเร็จ".into());
+            return Err(crate::tr!("การเข้าสู่ระบบ Google ผ่าน browser ถูกยกเลิกหรือไม่สำเร็จ", "Google sign-in in the browser was cancelled or failed").into());
         }
     }
 
     let out = gcloud_command(&["auth", "list", "--filter=status:ACTIVE", "--format=value(account)"])
         .output()
-        .map_err(|e| format!("ไม่พบ gcloud CLI: {e}"))?;
+        .map_err(|e| crate::tf!("ไม่พบ gcloud CLI: {e}", "gcloud CLI not found: {e}"))?;
 
     let email = String::from_utf8_lossy(&out.stdout).trim().lines().next().unwrap_or("").trim().to_string();
     if email.is_empty() {
         // Trigger interactive browser login if no active account yet
         let status = gcloud_command(&["auth", "login", "--quiet"])
             .status()
-            .map_err(|e| format!("เปิด Google Login ไม่สำเร็จ: {e}"))?;
+            .map_err(|e| crate::tf!("เปิด Google Login ไม่สำเร็จ: {e}", "Could not open Google sign-in: {e}"))?;
         if !status.success() {
-            return Err("ยังไม่ได้ล็อกอิน Google Account (กรุณาล็อกอินใน browser)".into());
+            return Err(crate::tr!("ยังไม่ได้ล็อกอิน Google Account (กรุณาล็อกอินใน browser)", "Not signed in to a Google account (please sign in in the browser)").into());
         }
         let out2 = gcloud_command(&["auth", "list", "--filter=status:ACTIVE", "--format=value(account)"])
             .output()
-            .map_err(|e| format!("อ่านบัญชี Google ไม่สำเร็จ: {e}"))?;
+            .map_err(|e| crate::tf!("อ่านบัญชี Google ไม่สำเร็จ: {e}", "Could not read the Google account: {e}"))?;
         let email2 = String::from_utf8_lossy(&out2.stdout).trim().lines().next().unwrap_or("").trim().to_string();
         if email2.is_empty() {
-            return Err("ไม่พบบัญชี Gmail ที่ล็อกอินอยู่".into());
+            return Err(crate::tr!("ไม่พบบัญชี Gmail ที่ล็อกอินอยู่", "No signed-in Gmail account found").into());
         }
         return Ok(Session {
             role: cfg.role_for_email(&email2),
@@ -220,12 +220,12 @@ fn oauth_browser_login(
     client_secret: Option<&str>,
     cfg: &GoogleAuthConfig,
 ) -> Result<Session, String> {
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("เปิด callback port ไม่ได้: {e}"))?;
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| crate::tf!("เปิด callback port ไม่ได้: {e}", "Could not open the callback port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
 
     let verifier_seed = format!(
-        "k9s-studio-{}-{}",
+        "klar-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -244,14 +244,14 @@ fn oauth_browser_login(
 
     open_browser(&auth_url);
 
-    let (mut stream, _) = listener.accept().map_err(|e| format!("รอ callback จาก Google ไม่สำเร็จ: {e}"))?;
+    let (mut stream, _) = listener.accept().map_err(|e| crate::tf!("รอ callback จาก Google ไม่สำเร็จ: {e}", "Waiting for the Google callback failed: {e}"))?;
     let mut buf = [0u8; 4096];
     let n = stream.read(&mut buf).unwrap_or(0);
     let req = String::from_utf8_lossy(&buf[..n]);
     let code = extract_query_param(&req, "code")
-        .ok_or_else(|| "ไม่ได้รับ authorization code จาก Google".to_string())?;
+        .ok_or_else(|| crate::tr!("ไม่ได้รับ authorization code จาก Google", "No authorization code received from Google").to_string())?;
 
-    let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body style='font-family:sans-serif;text-align:center;padding:60px;background:#111;color:#fff'><h2>เข้าสู่ระบบ Google สำเร็จ!</h2><p>ปิดหน้านี้แล้วกลับไปที่แอป K9s Studio ได้เลยครับ</p></body></html>";
+    let html = crate::tr!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body style='font-family:sans-serif;text-align:center;padding:60px;background:#111;color:#fff'><h2>เข้าสู่ระบบ Google สำเร็จ!</h2><p>ปิดหน้านี้แล้วกลับไปที่แอป Klar ได้เลยครับ</p></body></html>", "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body style='font-family:sans-serif;text-align:center;padding:60px;background:#111;color:#fff'><h2>Signed in to Google</h2><p>You can close this page and go back to Klar.</p></body></html>");
     let _ = stream.write_all(html.as_bytes());
 
     let mut form = format!(
@@ -268,9 +268,9 @@ fn oauth_browser_login(
     let token_out = Command::new("curl")
         .args(["-sS", "-X", "POST", "https://oauth2.googleapis.com/token", "-d", &form])
         .output()
-        .map_err(|e| format!("เรียก Google Token API ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก Google Token API ไม่สำเร็จ: {e}", "Google token request failed: {e}"))?;
     let token_json: Value = serde_json::from_slice(&token_out.stdout)
-        .map_err(|e| format!("อ่าน Token JSON ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("อ่าน Token JSON ไม่สำเร็จ: {e}", "Could not read the token JSON: {e}"))?;
     let access_token = token_json["access_token"]
         .as_str()
         .ok_or_else(|| format!("Google Token error: {token_json}"))?;
@@ -283,12 +283,12 @@ fn oauth_browser_login(
             "https://www.googleapis.com/oauth2/v3/userinfo",
         ])
         .output()
-        .map_err(|e| format!("ดึงข้อมูลผู้ใช้ Google ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("ดึงข้อมูลผู้ใช้ Google ไม่สำเร็จ: {e}", "Could not fetch the Google user: {e}"))?;
     let user_json: Value = serde_json::from_slice(&user_out.stdout)
-        .map_err(|e| format!("อ่าน UserInfo JSON ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("อ่าน UserInfo JSON ไม่สำเร็จ: {e}", "Could not read the UserInfo JSON: {e}"))?;
     let email = user_json["email"]
         .as_str()
-        .ok_or_else(|| "ไม่พบอีเมลจาก Google UserInfo".to_string())?
+        .ok_or_else(|| crate::tr!("ไม่พบอีเมลจาก Google UserInfo", "No email in the Google user info").to_string())?
         .to_string();
     let name = user_json["name"]
         .as_str()

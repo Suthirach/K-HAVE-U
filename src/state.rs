@@ -1,7 +1,7 @@
 use crate::auth::{self, AuthEvent, GoogleAuthConfig, Session, UserAccount, spawn_google_login};
 use crate::k8s::{
     ClusterSnapshot, EnvKind, EnvSourceKind, EnvVarItem, K8sEvent, NamespaceSummary, ServiceInfo,
-    default_overview, demo_snapshot, spawn_fetch_env, spawn_fetch_logs, spawn_fetch_overview,
+    demo_snapshot, spawn_fetch_env, spawn_fetch_logs, spawn_fetch_overview,
     spawn_fetch_snapshot, spawn_list_all_namespaces, spawn_restart_deploy, spawn_update_env,
 };
 use crate::gcp::{
@@ -61,6 +61,27 @@ pub struct WorkspaceTab {
     pub svc_search: String,
 }
 
+/// One step in the back-button history: which page (and namespace / service) was on screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavEntry {
+    pub page: Page,
+    pub env: EnvKind,
+    pub namespace: String,
+    pub service: Option<String>,
+    pub tab: Tab,
+    pub service_tab: ServiceTab,
+}
+
+impl NavEntry {
+    /// Two entries are the same "page" when page, namespace and service match (sub-tabs ignored).
+    fn same_place(&self, other: &NavEntry) -> bool {
+        self.page == other.page
+            && self.env == other.env
+            && self.namespace == other.namespace
+            && self.service == other.service
+    }
+}
+
 pub struct AppState {
     // Auth
     pub accounts: Vec<UserAccount>,
@@ -93,6 +114,15 @@ pub struct AppState {
     pub update_token_input: TextEdit,
     pub update_note: Option<String>,
     pub show_setup: bool,
+    /// UI language: true = Thai, false = English.
+    pub lang_th: bool,
+    /// Measured width of the Overview card grid, used to give every card the same width.
+    pub cards_grid_w: f32,
+    // Back-button history (per workspace tab)
+    pub nav_history: Vec<NavEntry>,
+    pub nav_last: Option<NavEntry>,
+    pub nav_tab_id: usize,
+    pub nav_going_back: bool,
     pub tools_checked: bool,
     pub tools_percent: f32,
     /// "ตกลง" was pressed on the setup screen: install what is missing, then go to sign-in.
@@ -120,6 +150,20 @@ pub struct AppState {
     pub new_ns_env: EnvKind,
     pub overview: Vec<NamespaceSummary>,
     pub overview_loading: bool,
+    /// Namespaces whose data could not be read on the last overview refresh (no mock data is shown).
+    pub overview_failed: usize,
+    /// Seconds since a loading animation appeared (drives the owl loader frames).
+    pub loader_t: f32,
+    /// Press-and-hold on a namespace card (to stop watching it).
+    pub ns_hold: Option<NsHold>,
+    pub ns_hold_progress: f32,
+    pub ns_press_block_until: Option<std::time::Instant>,
+    /// The namespace card that is asking "stop watching?".
+    pub confirm_unwatch: Option<(EnvKind, String)>,
+    /// The "switch service" modal on the service page.
+    pub svc_picker_open: bool,
+    pub svc_picker_search: TextEdit,
+    pub loader_since: Option<f64>,
     pub snapshot: ClusterSnapshot,
     pub loading: bool,
     pub search: TextEdit,
@@ -219,6 +263,12 @@ impl AppState {
             update_token_input: TextEdit::new(""),
             update_note: None,
             show_setup,
+            lang_th: load_lang_thai(),
+            cards_grid_w: 0.0,
+            nav_history: Vec::new(),
+            nav_last: None,
+            nav_tab_id: 0,
+            nav_going_back: false,
             tools_checked: false,
             tools_percent: 0.0,
             open_tabs,
@@ -229,7 +279,7 @@ impl AppState {
             service_tab: active_tab.service_tab,
             env,
             namespace,
-            dark: true,
+            dark: load_theme_dark(),
             overview_filter: OverviewFilter::All,
             pending_service_tab: None,
             stg_namespaces,
@@ -238,8 +288,11 @@ impl AppState {
             adding_ns: false,
             new_ns_input: TextEdit::new(""),
             new_ns_env: EnvKind::Stg,
-            overview: default_overview(),
+            overview: Vec::new(),
             overview_loading: false,
+            overview_failed: 0,
+            loader_t: 0.0,
+            loader_since: None,
             snapshot,
             loading: false,
             search: TextEdit::new(active_tab.svc_search.clone()),
@@ -271,6 +324,12 @@ impl AppState {
             new_env_key: TextEdit::new(""),
             new_env_val: TextEdit::new(""),
             banner: None,
+            ns_hold: None,
+            ns_hold_progress: 0.0,
+            ns_press_block_until: None,
+            confirm_unwatch: None,
+            svc_picker_open: false,
+            svc_picker_search: TextEdit::new(""),
             k9s_pty: K9sPty::new(),
             k9s_screen: K9sScreen::default(),
             waker: None,
@@ -314,6 +373,214 @@ impl AppState {
         }
     }
 
+    fn nav_entry(&self) -> NavEntry {
+        NavEntry {
+            page: self.page,
+            env: self.env,
+            namespace: self.namespace.clone(),
+            service: if self.page == Page::ServiceDetail { self.selected_service.clone() } else { None },
+            tab: self.tab,
+            service_tab: self.service_tab,
+        }
+    }
+
+    /// Records page changes for the back button. Called every frame from `poll`; returns true
+    /// when the history changed (so the back button can appear or disappear).
+    pub fn track_navigation(&mut self) -> bool {
+        if self.session.is_none() || self.picking_project || self.show_setup {
+            return false;
+        }
+        let cur = self.nav_entry();
+        if self.nav_tab_id != self.active_tab_id {
+            // Each workspace tab has its own trail.
+            self.nav_tab_id = self.active_tab_id;
+            let had = !self.nav_history.is_empty();
+            self.nav_history.clear();
+            self.nav_last = Some(cur);
+            return had;
+        }
+        let Some(last) = self.nav_last.clone() else {
+            self.nav_last = Some(cur);
+            return false;
+        };
+        if last.same_place(&cur) {
+            self.nav_last = Some(cur); // keep sub-tab choices up to date
+            return false;
+        }
+        let pushed = !self.nav_going_back;
+        if pushed {
+            self.nav_history.push(last);
+            if self.nav_history.len() > 50 {
+                self.nav_history.remove(0);
+            }
+        }
+        self.nav_going_back = false;
+        self.nav_last = Some(cur);
+        true
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        !self.nav_history.is_empty()
+    }
+
+    /// Returns to the previous page in this workspace tab.
+    pub fn go_back(&mut self) {
+        let Some(prev) = self.nav_history.pop() else {
+            return;
+        };
+        self.nav_going_back = true;
+        self.diagram_fullscreen = false;
+        match prev.page {
+            Page::Overview => self.open_overview(),
+            Page::Namespace => {
+                self.tab = prev.tab;
+                self.drill_into_namespace(prev.env, &prev.namespace);
+            }
+            Page::ServiceDetail => {
+                let same_ns = self.env == prev.env && self.namespace == prev.namespace;
+                if !same_ns {
+                    // Load the namespace first; the snapshot handler then loads this service.
+                    self.drill_into_namespace(prev.env, &prev.namespace);
+                }
+                match prev.service {
+                    Some(name) if same_ns => self.drill_into_service(name, prev.service_tab),
+                    Some(name) => {
+                        self.selected_service = Some(name);
+                        self.service_tab = prev.service_tab;
+                        self.page = Page::ServiceDetail;
+                        self.sync_active_tab();
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+
+    /// The Namespace page is still fetching the cluster (or only has fallback data for another one).
+    pub fn namespace_loading(&self) -> bool {
+        self.page == Page::Namespace
+            && self.loading
+            && (self.snapshot.namespace != self.namespace || self.snapshot.is_demo)
+    }
+
+    /// Is any owl loading animation on screen right now?
+    pub fn loader_visible(&self) -> bool {
+        if self.session.is_none() {
+            return false;
+        }
+        if self.picking_project {
+            return self.projects_loading || self.clusters_loading || self.connecting_cluster.is_some();
+        }
+        (self.page == Page::Overview && self.overview_loading && self.overview.is_empty())
+            || self.namespace_loading()
+    }
+
+    /// Advances the loader clock. Returns true while a loader is visible (a frame is needed).
+    /// How long a card has to be held before it asks to stop watching it.
+    pub const NS_HOLD_SECS: f32 = 0.6;
+
+    pub fn hold_begin(&mut self, env: EnvKind, ns: &str) {
+        self.ns_hold = Some(NsHold { env, ns: ns.to_string(), start: std::time::Instant::now(), fired: false });
+        self.ns_hold_progress = 0.0;
+    }
+
+    /// The pointer moved too far or the press ended before the hold completed.
+    pub fn hold_cancel(&mut self) {
+        if let Some(h) = self.ns_hold.take() {
+            if h.fired {
+                // The release that ends a completed hold must not also open the namespace.
+                self.ns_press_block_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(350));
+            }
+        }
+        self.ns_hold_progress = 0.0;
+    }
+
+    /// Advances the hold; true while it still needs frames.
+    pub fn tick_hold(&mut self) -> bool {
+        let Some(h) = self.ns_hold.as_mut() else { return false };
+        if h.fired {
+            return false;
+        }
+        let p = (h.start.elapsed().as_secs_f32() / Self::NS_HOLD_SECS).min(1.0);
+        self.ns_hold_progress = p;
+        if p >= 1.0 {
+            h.fired = true;
+            self.confirm_unwatch = Some((h.env, h.ns.clone()));
+            self.ns_hold_progress = 0.0;
+        }
+        true
+    }
+
+    pub fn hold_progress_for(&self, env: EnvKind, ns: &str) -> f32 {
+        match &self.ns_hold {
+            Some(h) if !h.fired && h.env == env && h.ns == ns => self.ns_hold_progress,
+            _ => 0.0,
+        }
+    }
+
+    /// A card press that ends a hold (or lands right after one) is not a click.
+    pub fn ns_press_blocked(&mut self) -> bool {
+        if self.ns_hold.as_ref().map_or(false, |h| h.fired) {
+            return true;
+        }
+        match self.ns_press_block_until {
+            Some(t) if std::time::Instant::now() < t => true,
+            _ => {
+                self.ns_press_block_until = None;
+                false
+            }
+        }
+    }
+
+    pub fn cancel_unwatch(&mut self) {
+        self.confirm_unwatch = None;
+    }
+
+    /// Stops watching a namespace: it leaves the Overview and the saved list.
+    pub fn confirm_unwatch_namespace(&mut self) {
+        let Some((env, ns)) = self.confirm_unwatch.take() else { return };
+        let list = match env {
+            EnvKind::Stg => &self.stg_namespaces,
+            EnvKind::Prod => &self.prod_namespaces,
+        };
+        if list.len() <= 1 {
+            self.banner = Some((crate::tf!(
+                "ต้องมีอย่างน้อย 1 Namespace ในฝั่ง {} จึงเลิกดู {ns} ไม่ได้",
+                "{} needs at least one namespace, so {ns} stays",
+                env.label()
+            ), false));
+            return;
+        }
+        self.overview.retain(|x| !(x.env == env && x.namespace == ns));
+        self.remove_namespace(env, &ns);
+        self.banner = Some((crate::tf!("เลิกดู {ns} แล้ว (เพิ่มกลับได้ที่ปุ่มเพิ่ม Namespace)", "Stopped watching {ns} (add it back with Add namespace)"), true));
+    }
+
+    pub fn tick_loader(&mut self, now: f64) -> bool {
+        if self.loader_visible() {
+            let since = *self.loader_since.get_or_insert(now);
+            self.loader_t = (now - since) as f32;
+            true
+        } else {
+            self.loader_since = None;
+            self.loader_t = 0.0;
+            false
+        }
+    }
+
+    /// Switches the UI language (Thai / English) and remembers the choice.
+    pub fn toggle_lang(&mut self) {
+        self.lang_th = !self.lang_th;
+        crate::i18n::set_thai(self.lang_th);
+        let _ = std::fs::write("klar-lang.txt", if self.lang_th { "th" } else { "en" });
+    }
+
+    /// Switches between the light and dark theme and remembers the choice.
+    pub fn toggle_theme(&mut self) {
+        self.dark = !self.dark;
+        let _ = std::fs::write("klar-theme.txt", if self.dark { "dark" } else { "light" });
+    }
+
     /// Looks (in the background) for kubectl / k9s / gcloud on PATH.
     pub fn check_tools(&mut self) {
         let tx = self.k8s_tx.clone();
@@ -333,7 +600,7 @@ impl AppState {
         self.tools_installing = true;
         self.tools_percent = 0.0;
         self.tools_error = None;
-        self.tools_log = "เริ่มดาวน์โหลด...".to_string();
+        self.tools_log = crate::tr!("เริ่มดาวน์โหลด...", "Starting download...").to_string();
         let tx = self.k8s_tx.clone();
         let waker = self.waker.clone();
         crate::tools::spawn_install(self.tools_missing.clone(), tx, move || {
@@ -393,7 +660,7 @@ impl AppState {
             Ok(()) => {
                 self.update_token = Some(token);
                 self.update_token_input = TextEdit::new("");
-                self.update_note = Some("บันทึก token แล้ว กำลังเช็กอัปเดต...".to_string());
+                self.update_note = Some(crate::tr!("บันทึก token แล้ว กำลังเช็กอัปเดต...", "Token saved, checking for updates...").to_string());
                 self.check_for_update();
             }
             Err(e) => self.update_note = Some(e),
@@ -653,13 +920,50 @@ impl AppState {
         self.load_service_data(&service_name);
     }
 
+    pub fn open_svc_picker(&mut self) {
+        self.svc_picker_open = true;
+        self.svc_picker_search = TextEdit::new("");
+    }
+
+    pub fn close_svc_picker(&mut self) {
+        self.svc_picker_open = false;
+    }
+
+    /// Jumps to another service of the same namespace, staying on the same tab.
+    pub fn switch_service(&mut self, name: &str) {
+        self.svc_picker_open = false;
+        if self.selected_service.as_deref() == Some(name) {
+            return;
+        }
+        let tab = self.service_tab;
+        self.drill_into_service(name.to_string(), tab);
+    }
+
+    /// Services of the current namespace that match the picker's search.
+    pub fn svc_picker_matches(&self) -> Vec<&ServiceInfo> {
+        let q = self.svc_picker_search.text.trim().to_ascii_lowercase();
+        let mut v: Vec<&ServiceInfo> = self
+            .snapshot
+            .services
+            .iter()
+            .filter(|x| {
+                q.is_empty()
+                    || x.name.to_ascii_lowercase().contains(&q)
+                    || x.role.label().to_ascii_lowercase().contains(&q)
+                    || x.hosts.iter().any(|h| h.to_ascii_lowercase().contains(&q))
+            })
+            .collect();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v
+    }
+
     pub fn load_service_data(&mut self, service_name: &str) {
         if let Some(svc) = self.snapshot.services.iter().find(|s| s.name == service_name).cloned() {
             if let Some(pod) = svc.pods.first() {
                 self.fetch_logs(pod.name.clone());
             } else {
                 self.logs_pod = None;
-                self.logs_text = Some("ยังไม่มี Pod ที่รันอยู่สำหรับ service นี้".into());
+                self.logs_text = Some(crate::tr!("ยังไม่มี Pod ที่รันอยู่สำหรับ service นี้", "No running pods for this service yet").into());
             }
             if let Some(deploy) = svc.deploy_name {
                 self.fetch_env(deploy);
@@ -694,7 +998,7 @@ impl AppState {
         if !target.iter().any(|x| x == &ns) {
             target.push(ns.clone());
             save_namespaces(&self.stg_namespaces, &self.prod_namespaces);
-            self.banner = Some((format!("เพิ่ม Namespace {ns} เข้าฝั่ง {} แล้ว", env.label()), true));
+            self.banner = Some((crate::tf!("เพิ่ม Namespace {ns} เข้าฝั่ง {} แล้ว", "Added namespace {ns} to {}", env.label()), true));
             self.refresh_overview();
         }
         self.new_ns_input = TextEdit::new("");
@@ -741,7 +1045,7 @@ impl AppState {
 
     pub fn fetch_logs(&mut self, pod: String) {
         self.logs_pod = Some(pod.clone());
-        self.logs_text = Some("กำลังโหลด logs...".into());
+        self.logs_text = Some(crate::tr!("กำลังโหลด logs...", "Loading logs...").into());
         let tx = self.k8s_tx.clone();
         let ns = self.namespace.clone();
         let since = self.log_since.clone();
@@ -774,7 +1078,7 @@ impl AppState {
                 let _ = stdin.write_all(text.as_bytes());
             }
             let _ = child.wait();
-            self.banner = Some((format!("คัดลอก {label} ไปยัง Clipboard แล้ว"), true));
+            self.banner = Some((crate::tf!("คัดลอก {label} ไปยัง Clipboard แล้ว", "Copied {label} to the clipboard"), true));
         }
     }
 
@@ -797,7 +1101,7 @@ impl AppState {
             };
             if !allowed {
                 self.banner = Some((
-                    format!("สิทธิ์ {} ไม่สามารถแก้ไข ENV บน {} ได้", sess.role.label(), self.env.label()),
+                    crate::tf!("สิทธิ์ {} ไม่สามารถแก้ไข ENV บน {} ได้", "{} cannot edit ENV on {}", sess.role.label(), self.env.label()),
                     false,
                 ));
                 return false;
@@ -842,7 +1146,7 @@ impl AppState {
     pub fn save_new_env(&mut self, restart_after: bool) {
         let key = self.new_env_key.text.trim().to_string();
         if key.is_empty() {
-            self.banner = Some(("กรุณากรอกชื่อ Key ของ ENV".into(), false));
+            self.banner = Some((crate::tr!("กรุณากรอกชื่อ Key ของ ENV", "Enter an ENV key name").into(), false));
             return;
         }
         if !self.can_mutate_current_env() {
@@ -929,13 +1233,19 @@ impl AppState {
         std::thread::spawn(move || {
             #[cfg(target_os = "windows")]
             let out = {
-                let ps_script = format!(
+                let ps_script = crate::tf!(
                     "Add-Type -AssemblyName System.Windows.Forms; \
                      $d = New-Object System.Windows.Forms.SaveFileDialog; \
                      $d.Filter = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'; \
                      $d.InitialDirectory = '{}'; \
                      $d.FileName = '{}'; \
                      $d.Title = 'เลือกตำแหน่งบันทึกไฟล์ ENV CSV'; \
+                     if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $d.FileName }}", "Add-Type -AssemblyName System.Windows.Forms; \
+                     $d = New-Object System.Windows.Forms.SaveFileDialog; \
+                     $d.Filter = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'; \
+                     $d.InitialDirectory = '{}'; \
+                     $d.FileName = '{}'; \
+                     $d.Title = 'Choose where to save the ENV CSV'; \
                      if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $d.FileName }}",
                     default_dir.replace('\'', "''"),
                     file_name.replace('\'', "''"),
@@ -946,8 +1256,8 @@ impl AppState {
             };
             #[cfg(target_os = "macos")]
             let out = {
-                let osa_script = format!(
-                    "POSIX path of (choose file name with prompt \"เลือกตำแหน่งบันทึกไฟล์ ENV CSV\" default name \"{}\" default location POSIX file \"{}\")",
+                let osa_script = crate::tf!(
+                    "POSIX path of (choose file name with prompt \"เลือกตำแหน่งบันทึกไฟล์ ENV CSV\" default name \"{}\" default location POSIX file \"{}\")", "POSIX path of (choose file name with prompt \"Choose where to save the ENV CSV\" default name \"{}\" default location POSIX file \"{}\")",
                     file_name.replace('"', "\\\""),
                     default_dir.replace('"', "\\\""),
                 );
@@ -965,8 +1275,8 @@ impl AppState {
                 let chosen = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 if !chosen.is_empty() {
                     let msg = match std::fs::write(&chosen, csv) {
-                        Ok(_) => (format!("Export ENV ({count} รายการ) ไปที่ {chosen} สำเร็จ"), true),
-                        Err(e) => (format!("Export CSV ไม่สำเร็จ: {e}"), false),
+                        Ok(_) => (crate::tf!("Export ENV ({count} รายการ) ไปที่ {chosen} สำเร็จ", "Exported {count} ENV entries to {chosen}"), true),
+                        Err(e) => (crate::tf!("Export CSV ไม่สำเร็จ: {e}", "CSV export failed: {e}"), false),
                     };
                     let _ = tx.send(K8sEvent::ActionResult {
                         message: msg.0,
@@ -999,7 +1309,7 @@ impl AppState {
             };
             if !allowed {
                 self.banner = Some((
-                    format!("สิทธิ์ {} ไม่สามารถสั่ง Restart บน {} ได้", sess.role.label(), self.env.label()),
+                    crate::tf!("สิทธิ์ {} ไม่สามารถสั่ง Restart บน {} ได้", "{} cannot restart on {}", sess.role.label(), self.env.label()),
                     false,
                 ));
                 return;
@@ -1075,6 +1385,9 @@ impl AppState {
                 }
                 K8sEvent::Overview(list) => {
                     self.overview_loading = false;
+                    // Only real cluster data on the Overview: drop the demo fallbacks.
+                    self.overview_failed = list.iter().filter(|n| n.is_demo).count();
+                    let list: Vec<NamespaceSummary> = list.into_iter().filter(|n| !n.is_demo).collect();
                     self.overview = list;
                 }
                 K8sEvent::AllNamespaces(list) => {
@@ -1114,7 +1427,7 @@ impl AppState {
                     match result {
                         Ok(()) => {
                             self.banner = Some((
-                                format!("เชื่อมต่อ cluster {cluster} ({project}) แล้ว"),
+                                crate::tf!("เชื่อมต่อ cluster {cluster} ({project}) แล้ว", "Connected to cluster {cluster} ({project})"),
                                 true,
                             ));
                             self.active_project = Some(project);
@@ -1133,8 +1446,8 @@ impl AppState {
                     Ok(found) => {
                         if self.update_token.is_some() {
                             self.update_note = Some(match &found {
-                                Some(v) => format!("พบเวอร์ชันใหม่ v{v}"),
-                                None => "ใช้เวอร์ชันล่าสุดอยู่แล้ว".to_string(),
+                                Some(v) => crate::tf!("พบเวอร์ชันใหม่ v{v}", "New version v{v} available"),
+                                None => crate::tr!("ใช้เวอร์ชันล่าสุดอยู่แล้ว", "You have the latest version").to_string(),
                             });
                         }
                         if let Some(version) = found {
@@ -1152,7 +1465,7 @@ impl AppState {
                     if let UpdateState::Installing(version) = previous {
                         self.update = UpdateState::Available(version);
                     }
-                    let msg = format!("อัปเดตไม่สำเร็จ: {err}");
+                    let msg = crate::tf!("อัปเดตไม่สำเร็จ: {err}", "Update failed: {err}");
                     if self.session.is_none() {
                         self.login_error = Some(msg.clone());
                     }
@@ -1250,7 +1563,7 @@ struct SavedTabs {
 }
 
 fn load_saved_tabs(stg_ns: &[String]) -> (Vec<WorkspaceTab>, usize, usize) {
-    if let Ok(raw) = std::fs::read_to_string("k9s-ui-tabs.json") {
+    if let Ok(raw) = std::fs::read_to_string("klar-tabs.json") {
         if let Ok(mut parsed) = serde_json::from_str::<SavedTabs>(&raw) {
             if !parsed.tabs.is_empty() {
                 for t in &mut parsed.tabs {
@@ -1288,7 +1601,7 @@ fn save_tabs(tabs: &[WorkspaceTab], active_id: usize) {
         active_id,
     };
     if let Ok(json) = serde_json::to_string_pretty(&data) {
-        let _ = std::fs::write("k9s-ui-tabs.json", json);
+        let _ = std::fs::write("klar-tabs.json", json);
     }
 }
 
@@ -1298,8 +1611,16 @@ struct SavedNamespaces {
     prod: Vec<String>,
 }
 
+/// A press being held on a namespace card.
+pub struct NsHold {
+    pub env: EnvKind,
+    pub ns: String,
+    pub start: std::time::Instant,
+    pub fired: bool,
+}
+
 fn load_saved_namespaces() -> (Vec<String>, Vec<String>) {
-    if let Ok(raw) = std::fs::read_to_string("k9s-ui-namespaces.json") {
+    if let Ok(raw) = std::fs::read_to_string("klar-namespaces.json") {
         if let Ok(parsed) = serde_json::from_str::<SavedNamespaces>(&raw) {
             if !parsed.stg.is_empty() && !parsed.prod.is_empty() {
                 return (parsed.stg, parsed.prod);
@@ -1318,6 +1639,20 @@ fn save_namespaces(stg: &[String], prod: &[String]) {
         prod: prod.to_vec(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&data) {
-        let _ = std::fs::write("k9s-ui-namespaces.json", json);
+        let _ = std::fs::write("klar-namespaces.json", json);
     }
+}
+
+/// Saved theme choice (dark by default).
+fn load_theme_dark() -> bool {
+    std::fs::read_to_string("klar-theme.txt")
+        .map(|t| t.trim() != "light")
+        .unwrap_or(true)
+}
+
+/// Saved UI language (Thai by default).
+pub fn load_lang_thai() -> bool {
+    std::fs::read_to_string("klar-lang.txt")
+        .map(|t| t.trim() != "en")
+        .unwrap_or(true)
 }

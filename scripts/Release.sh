@@ -17,7 +17,7 @@ command -v gh >/dev/null || { echo "ต้องมี gh ก่อน: brew ins
 
 echo "== 1/3 ตั้งเวอร์ชัน $V แล้ว push =="
 sed -i '' "s/^version = \".*\"/version = \"$V\"/" Cargo.toml
-cargo update -p k9s-ui --offline >/dev/null 2>&1 || true
+cargo update -p klar --offline >/dev/null 2>&1 || true
 git add -A
 git commit -m "Release v$V" || true
 git push
@@ -27,9 +27,9 @@ git push origin "v$V"
 echo "== 2/3 build ไฟล์ Mac บนเครื่องนี้ (Windows กำลัง build บน GitHub) =="
 UNIVERSAL=1 bash packaging/macos/build-app.sh
 
-echo "== 3/3 อัปโหลด K9s-Studio-Mac.dmg ขึ้น Release v$V =="
+echo "== 3/3 อัปโหลด Klar-Mac.dmg ขึ้น Release v$V =="
 gh release view "v$V" >/dev/null 2>&1 || gh release create "v$V" --title "v$V" --notes "Release v$V"
-gh release upload "v$V" dist/K9s-Studio-Mac.dmg --clobber
+gh release upload "v$V" dist/Klar-Mac.dmg --clobber
 
 echo
 echo "เสร็จฝั่ง Mac แล้ว ไฟล์ Windows จะขึ้นใน Release เองเมื่อ GitHub build เสร็จ (ดูที่แท็บ Actions)"

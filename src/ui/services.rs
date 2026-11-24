@@ -25,17 +25,17 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .gap(12.0)
         .center_y()
         .child(stat_card(
-            "Services ทั้งหมด",
+            crate::tr!("Services ทั้งหมด", "All services"),
             total.to_string(),
             theme::text_strong(),
         ))
         .child(stat_card(
-            "ทำงานปกติ (Healthy)",
+            crate::tr!("ทำงานปกติ (Healthy)", "Healthy"),
             healthy.to_string(),
             health_color(Health::Healthy),
         ))
         .child(stat_card(
-            "ต้องตรวจสอบ (Issues)",
+            crate::tr!("ต้องตรวจสอบ (Issues)", "Issues"),
             issues.to_string(),
             health_color(if issues > 0 {
                 Health::Warning
@@ -47,7 +47,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .child(
             TextInput::new(&s.search)
                 .width(Some(280.0))
-                .placeholder("ค้นหาชื่อ service เช่น king-maker...")
+                .placeholder(crate::tr!("ค้นหาชื่อ service เช่น king-maker...", "Search services, e.g. king-maker..."))
                 .on_edit(|s: &mut AppState| &mut s.search)
                 .build(k),
         );
@@ -72,7 +72,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         pod_btns = pod_btns
             .child(pill_icon_btn(
                 &icons::ARROW_RIGHT,
-                "เจาะลึก",
+                crate::tr!("เจาะลึก", "Details"),
                 PillVariant::Primary,
                 PillSize::Sm,
                 move |s: &mut AppState| {
@@ -154,7 +154,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                             )
                             .child(soft_badge(
                                 svc.role.label(),
-                                Color::WHITE.alpha(0.06),
+                                theme::ink(0.06),
                                 theme::text_secondary(),
                                 Some(theme::border_subtle()),
                             ))

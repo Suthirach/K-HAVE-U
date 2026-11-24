@@ -15,17 +15,17 @@ pub fn tools_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         let base = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
-        PathBuf::from(base).join("K9s Studio").join("tools")
+        PathBuf::from(base).join("Klar").join("tools")
     }
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join("Library/Application Support/K9s Studio/tools")
+        PathBuf::from(home).join("Library/Application Support/Klar/tools")
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join(".local/share/k9s-studio/tools")
+        PathBuf::from(home).join(".local/share/klar/tools")
     }
 }
 
@@ -141,14 +141,14 @@ impl Progress<'_> {
 
 /// Temporary folder for downloaded archives (cleaned up after each install).
 fn temp_dir() -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join("k9s-studio-install");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("สร้างโฟลเดอร์ชั่วคราวไม่ได้: {e}"))?;
+    let dir = std::env::temp_dir().join("klar-install");
+    std::fs::create_dir_all(&dir).map_err(|e| crate::tf!("สร้างโฟลเดอร์ชั่วคราวไม่ได้: {e}", "Could not create a temporary folder: {e}"))?;
     Ok(dir)
 }
 
 fn install_all(missing: &[String], send: &dyn Fn(&str, f32)) -> Result<(), String> {
     let dir = tools_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("สร้างโฟลเดอร์ {} ไม่ได้: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| crate::tf!("สร้างโฟลเดอร์ {} ไม่ได้: {e}", "Could not create folder {}: {e}", dir.display()))?;
     let has = |name: &str| missing.iter().any(|m| m == name);
     let need_plugin = has("gcloud") || has("gke-gcloud-auth-plugin");
 
@@ -185,13 +185,13 @@ fn install_all(missing: &[String], send: &dyn Fn(&str, f32)) -> Result<(), Strin
             install_gcloud(&dir, &tmp, &prog)?;
         }
         if need_plugin {
-            prog.begin("กำลังติดตั้ง gke-gcloud-auth-plugin...");
+            prog.begin(crate::tr!("กำลังติดตั้ง gke-gcloud-auth-plugin...", "Installing gke-gcloud-auth-plugin..."));
             let out = gcloud_command(&["components", "install", "gke-gcloud-auth-plugin", "--quiet"])
                 .output()
-                .map_err(|e| format!("เรียก gcloud ไม่สำเร็จ: {e}"))?;
+                .map_err(|e| crate::tf!("เรียก gcloud ไม่สำเร็จ: {e}", "Could not run gcloud: {e}"))?;
             if !out.status.success() {
-                return Err(format!(
-                    "ติดตั้ง gke-gcloud-auth-plugin ไม่สำเร็จ: {}",
+                return Err(crate::tf!(
+                    "ติดตั้ง gke-gcloud-auth-plugin ไม่สำเร็จ: {}", "Could not install gke-gcloud-auth-plugin: {}",
                     String::from_utf8_lossy(&out.stderr).trim()
                 ));
             }
@@ -201,7 +201,7 @@ fn install_all(missing: &[String], send: &dyn Fn(&str, f32)) -> Result<(), Strin
     })();
     let _ = std::fs::remove_dir_all(&tmp);
     if result.is_ok() {
-        prog.begin("ติดตั้งเสร็จแล้ว");
+        prog.begin(crate::tr!("ติดตั้งเสร็จแล้ว", "Installed"));
     }
     result
 }
@@ -211,7 +211,7 @@ fn arch() -> &'static str {
 }
 
 fn install_kubectl(dir: &Path, prog: &Progress) -> Result<(), String> {
-    prog.begin("กำลังโหลด kubectl...");
+    prog.begin(crate::tr!("กำลังโหลด kubectl...", "Downloading kubectl..."));
     let version = curl_text("https://dl.k8s.io/release/stable.txt")?;
     let (os, exe) = if cfg!(windows) {
         ("windows", "kubectl.exe")
@@ -229,7 +229,7 @@ fn install_kubectl(dir: &Path, prog: &Progress) -> Result<(), String> {
 }
 
 fn install_k9s(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String> {
-    prog.begin("กำลังโหลด k9s...");
+    prog.begin(crate::tr!("กำลังโหลด k9s...", "Downloading k9s..."));
     let (os, ext, exe) = if cfg!(windows) {
         ("Windows", "zip", "k9s.exe")
     } else if cfg!(target_os = "macos") {
@@ -247,14 +247,14 @@ fn install_k9s(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String> {
     extract(&archive, &unpack)?;
     let dest = dir.join(exe);
     let _ = std::fs::remove_file(&dest);
-    std::fs::copy(unpack.join(exe), &dest).map_err(|e| format!("ติดตั้ง k9s ไม่สำเร็จ: {e}"))?;
+    std::fs::copy(unpack.join(exe), &dest).map_err(|e| crate::tf!("ติดตั้ง k9s ไม่สำเร็จ: {e}", "Could not install k9s: {e}"))?;
     make_executable(&dest)?;
     prog.finish(W_K9S);
     Ok(())
 }
 
 fn install_gcloud(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String> {
-    prog.begin("กำลังโหลด gcloud (ไฟล์ใหญ่ อาจใช้เวลาสักพัก)...");
+    prog.begin(crate::tr!("กำลังโหลด gcloud (ไฟล์ใหญ่ อาจใช้เวลาสักพัก)...", "Downloading gcloud (large file, this can take a while)..."));
     let base = "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads";
     let (file, ext) = if cfg!(windows) {
         ("google-cloud-cli-windows-x86_64.zip".to_string(), "zip")
@@ -270,13 +270,13 @@ fn install_gcloud(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String>
     })?;
     prog.finish(W_GCLOUD_DOWNLOAD);
 
-    prog.begin("กำลังแตกไฟล์ gcloud...");
+    prog.begin(crate::tr!("กำลังแตกไฟล์ gcloud...", "Extracting gcloud..."));
     let sdk = dir.join("google-cloud-sdk");
     let _ = std::fs::remove_dir_all(&sdk);
     extract(&archive, dir)?;
     prog.finish(W_GCLOUD_EXTRACT);
 
-    prog.begin("กำลังตั้งค่า gcloud...");
+    prog.begin(crate::tr!("กำลังตั้งค่า gcloud...", "Setting up gcloud..."));
     let flags = [
         "--quiet",
         "--usage-reporting=false",
@@ -292,10 +292,10 @@ fn install_gcloud(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String>
     } else {
         Command::new("sh").arg(sdk.join("install.sh")).args(flags).output()
     }
-    .map_err(|e| format!("ตั้งค่า gcloud ไม่สำเร็จ: {e}"))?;
+    .map_err(|e| crate::tf!("ตั้งค่า gcloud ไม่สำเร็จ: {e}", "Could not set up gcloud: {e}"))?;
     if !out.status.success() {
-        return Err(format!(
-            "ตั้งค่า gcloud ไม่สำเร็จ: {}",
+        return Err(crate::tf!(
+            "ตั้งค่า gcloud ไม่สำเร็จ: {}", "Could not set up gcloud: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
@@ -334,12 +334,12 @@ fn download_tracked(url: &str, dest: &Path, on_fraction: &dyn Fn(f32)) -> Result
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("เรียก curl ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก curl ไม่สำเร็จ: {e}", "Could not run curl: {e}"))?;
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) => {}
-            Err(e) => return Err(format!("ดาวน์โหลดไม่สำเร็จ: {e}")),
+            Err(e) => return Err(crate::tf!("ดาวน์โหลดไม่สำเร็จ: {e}", "Download failed: {e}")),
         }
         if let (Some(t), Ok(meta)) = (total, std::fs::metadata(dest)) {
             on_fraction(meta.len() as f32 / t as f32);
@@ -348,13 +348,13 @@ fn download_tracked(url: &str, dest: &Path, on_fraction: &dyn Fn(f32)) -> Result
     }
     let out = child
         .wait_with_output()
-        .map_err(|e| format!("ดาวน์โหลดไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("ดาวน์โหลดไม่สำเร็จ: {e}", "Download failed: {e}"))?;
     if out.status.success() {
         on_fraction(1.0);
         Ok(())
     } else {
-        Err(format!(
-            "ดาวน์โหลดไม่สำเร็จ: {url}\n{}",
+        Err(crate::tf!(
+            "ดาวน์โหลดไม่สำเร็จ: {url}\n{}", "Download failed: {url}\n{}",
             String::from_utf8_lossy(&out.stderr).trim()
         ))
     }
@@ -377,12 +377,12 @@ pub fn download_with_headers(url: &str, dest: &Path, headers: &[String]) -> Resu
         .arg(dest)
         .arg(url)
         .output()
-        .map_err(|e| format!("เรียก curl ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก curl ไม่สำเร็จ: {e}", "Could not run curl: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "ดาวน์โหลดไม่สำเร็จ: {url}\n{}",
+        Err(crate::tf!(
+            "ดาวน์โหลดไม่สำเร็จ: {url}\n{}", "Download failed: {url}\n{}",
             String::from_utf8_lossy(&out.stderr).trim()
         ))
     }
@@ -392,27 +392,27 @@ fn curl_text(url: &str) -> Result<String, String> {
     let out = Command::new("curl")
         .args(["-fsSL", "--max-time", "30", url])
         .output()
-        .map_err(|e| format!("เรียก curl ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก curl ไม่สำเร็จ: {e}", "Could not run curl: {e}"))?;
     if !out.status.success() {
-        return Err(format!("เปิด {url} ไม่ได้"));
+        return Err(crate::tf!("เปิด {url} ไม่ได้", "Could not open {url}"));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 fn extract(archive: &Path, dest: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dest).map_err(|e| format!("สร้างโฟลเดอร์ไม่ได้: {e}"))?;
+    std::fs::create_dir_all(dest).map_err(|e| crate::tf!("สร้างโฟลเดอร์ไม่ได้: {e}", "Could not create the folder: {e}"))?;
     let out = Command::new("tar")
         .arg("-xf")
         .arg(archive)
         .arg("-C")
         .arg(dest)
         .output()
-        .map_err(|e| format!("เรียก tar ไม่สำเร็จ: {e}"))?;
+        .map_err(|e| crate::tf!("เรียก tar ไม่สำเร็จ: {e}", "Could not run tar: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "แตกไฟล์ไม่สำเร็จ: {}",
+        Err(crate::tf!(
+            "แตกไฟล์ไม่สำเร็จ: {}", "Extraction failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ))
     }
@@ -422,7 +422,7 @@ fn extract(archive: &Path, dest: &Path) -> Result<(), String> {
 fn make_executable(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-        .map_err(|e| format!("ตั้งสิทธิ์รันไฟล์ไม่ได้: {e}"))
+        .map_err(|e| crate::tf!("ตั้งสิทธิ์รันไฟล์ไม่ได้: {e}", "Could not make the file executable: {e}"))
 }
 
 #[cfg(not(unix))]

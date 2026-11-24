@@ -2,3 +2,8 @@
 *.pdb
 .DS_Store
 /dist/
+
+# Local app state written next to the binary during development
+klar-*.json
+klar-*.txt
+assets/icon/mark_body.txt

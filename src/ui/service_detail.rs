@@ -18,13 +18,13 @@ pub fn view(s: &AppState, k: &Kit) -> El {
             .center()
             .gap(12.0)
             .child(
-                text("ไม่พบข้อมูล Service ที่เลือก")
+                text(crate::tr!("ไม่พบข้อมูล Service ที่เลือก", "Selected service not found"))
                     .font(k.ty.body_medium)
                     .color(theme::text_muted()),
             )
             .child(pill_icon_btn(
                 &icons::ARROW_LEFT,
-                "กลับไปหน้า Namespace",
+                crate::tr!("กลับไปหน้า Namespace", "Back to namespace"),
                 PillVariant::Chrome,
                 PillSize::Md,
                 |s: &mut AppState| s.page = Page::Namespace,
@@ -70,7 +70,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .border(1.0, theme::border_glass())
         .child(pill_icon_btn(
             &icons::ARROW_LEFT,
-            "กลับ",
+            crate::tr!("กลับ", "Back"),
             PillVariant::Glass,
             PillSize::Sm,
             |s: &mut AppState| {
@@ -87,14 +87,36 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                     row()
                         .gap(8.0)
                         .center_y()
-                        .child(
-                            text(svc.name.clone())
-                                .font(theme::heading_lg())
-                                .color(theme::text_strong()),
-                        )
+                        // The name opens a picker of the namespace's other services.
+                        .child(interactive_row(
+                            row()
+                                .key("svc-switcher")
+                                .role("button")
+                                .label(crate::tr!("เปลี่ยน Service", "Switch service"))
+                                .hit()
+                                .gap(6.0)
+                                .center_y()
+                                .px(8.0)
+                                .py(2.0)
+                                .radius(10.0)
+                                .fill(if s.svc_picker_open { theme::ink(0.08) } else { Color::TRANSPARENT })
+                                .on_press(|s: &mut AppState| {
+                                    if s.svc_picker_open {
+                                        s.close_svc_picker()
+                                    } else {
+                                        s.open_svc_picker()
+                                    }
+                                })
+                                .child(
+                                    text(svc.name.clone())
+                                        .font(theme::heading_lg())
+                                        .color(theme::text_strong()),
+                                )
+                                .child(mono_icon(&icons::CHEVRON_DOWN, 16.0, theme::text_muted())),
+                        ))
                         .child(soft_badge(
                             svc.role.label(),
-                            Color::WHITE.alpha(0.06),
+                            theme::ink(0.06),
                             theme::text_secondary(),
                             Some(theme::border_subtle()),
                         ))
@@ -116,7 +138,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 .gap(8.0)
                 .child(pill_icon_btn(
                     &icons::TERMINAL,
-                    "เปิดใน K9s",
+                    crate::tr!("เปิดใน K9s", "Open in K9s"),
                     PillVariant::Glass,
                     PillSize::Sm,
                     |s: &mut AppState| {
@@ -171,7 +193,7 @@ fn info_view(svc: &ServiceInfo, k: &Kit) -> El {
     let mut pods_col = col().gap(8.0);
     if svc.pods.is_empty() {
         pods_col = pods_col.child(
-            text("ไม่มี Pod ที่กำลังรันอยู่")
+            text(crate::tr!("ไม่มี Pod ที่กำลังรันอยู่", "No running pods"))
                 .font(k.ty.text_small)
                 .color(theme::text_muted()),
         );
@@ -188,7 +210,7 @@ fn info_view(svc: &ServiceInfo, k: &Kit) -> El {
                         .gap(5.0)
                         .center_y()
                         .radius(999.0)
-                        .fill(Color::WHITE.alpha(0.06))
+                        .fill(theme::ink(0.06))
                         .border(1.0, theme::border_subtle())
                         .child(mono_icon(&icons::SERVER, 10.5, theme::text_muted()))
                         .child(
@@ -257,13 +279,13 @@ fn info_view(svc: &ServiceInfo, k: &Kit) -> El {
                     )
                     .child(soft_badge(
                         format!("Restarts: {}", p.restarts),
-                        Color::WHITE.alpha(0.05),
+                        theme::ink(0.05),
                         theme::text_muted(),
                         Some(theme::border_subtle()),
                     ))
                     .child(pill_icon_btn(
                         &icons::LOGS,
-                        "ดู Log",
+                        crate::tr!("ดู Log", "View logs"),
                         PillVariant::Glass,
                         PillSize::Sm,
                         move |s: &mut AppState| {
@@ -301,7 +323,7 @@ fn info_view(svc: &ServiceInfo, k: &Kit) -> El {
                         )
                         .child(
                             text(if svc.hosts.is_empty() {
-                                "Internal Service (ไม่เปิดออกนอก Cluster)".into()
+                                crate::tr!("Internal Service (ไม่เปิดออกนอก Cluster)", "Internal service (not exposed outside the cluster)").into()
                             } else {
                                 svc.hosts.join("\n")
                             })
@@ -323,14 +345,14 @@ fn info_view(svc: &ServiceInfo, k: &Kit) -> El {
                                 .center_y()
                                 .child(mono_icon(&icons::LINK, 14.5, theme::text_secondary()))
                                 .child(
-                                    text("เชื่อมต่อไปยัง")
+                                    text(crate::tr!("เชื่อมต่อไปยัง", "Connects to"))
                                         .font(k.ty.body_medium)
                                         .color(theme::text_strong()),
                                 ),
                         )
                         .child(
                             text(if svc.connects_to.is_empty() {
-                                "ไม่มีปลายทางภายในที่ตรวจพบ".into()
+                                crate::tr!("ไม่มีปลายทางภายในที่ตรวจพบ", "No internal targets detected").into()
                             } else {
                                 svc.connects_to.join(", ")
                             })
@@ -405,7 +427,7 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
     let raw_logs = s
         .logs_text
         .clone()
-        .unwrap_or_else(|| "(เลือก Pod เพื่อดู Log)".into());
+        .unwrap_or_else(|| crate::tr!("(เลือก Pod เพื่อดู Log)", "(Choose a pod to view logs)").into());
     let query = s.log_search.text.trim().to_ascii_lowercase();
 
     let mut lines: Vec<String> = raw_logs.lines().map(String::from).collect();
@@ -433,27 +455,27 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 &icons::ARROW_DOWN
             },
             if s.log_newest_first {
-                "ใหม่สุดอยู่บน"
+                crate::tr!("ใหม่สุดอยู่บน", "Newest on top")
             } else {
-                "ใหม่สุดอยู่ล่าง"
+                crate::tr!("ใหม่สุดอยู่ล่าง", "Newest at bottom")
             },
             PillVariant::Gold,
             PillSize::Sm,
             |s: &mut AppState| s.log_newest_first = !s.log_newest_first,
         ))
         .child(segmented_group([
-            since_btn("ทั้งหมด", None),
-            since_btn("5 นาที", Some("5m")),
-            since_btn("15 นาที", Some("15m")),
-            since_btn("1 ชม.", Some("1h")),
-            since_btn("6 ชม.", Some("6h")),
+            since_btn(crate::tr!("ทั้งหมด", "All"), None),
+            since_btn(crate::tr!("5 นาที", "5 min"), Some("5m")),
+            since_btn(crate::tr!("15 นาที", "15 min"), Some("15m")),
+            since_btn(crate::tr!("1 ชม.", "1 hr"), Some("1h")),
+            since_btn(crate::tr!("6 ชม.", "6 hr"), Some("6h")),
         ]))
         .child(pill_icon_btn(
             &icons::CLOCK,
             if s.log_timestamps {
-                "เวลา: เปิด"
+                crate::tr!("เวลา: เปิด", "Time: on")
             } else {
-                "เวลา: ปิด"
+                crate::tr!("เวลา: ปิด", "Time: off")
             },
             if s.log_timestamps {
                 PillVariant::Chrome
@@ -471,7 +493,7 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
         .child(
             TextInput::new(&s.log_search)
                 .width(Some(190.0))
-                .placeholder("ค้นหาใน Log...")
+                .placeholder(crate::tr!("ค้นหาใน Log...", "Search logs..."))
                 .on_edit(|s: &mut AppState| &mut s.log_search)
                 .build(k),
         )
@@ -489,11 +511,11 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
         ))
         .child(pill_icon_btn(
             &icons::COPY,
-            "Copy ทั้งหมด",
+            crate::tr!("Copy ทั้งหมด", "Copy all"),
             PillVariant::Primary,
             PillSize::Sm,
             move |s: &mut AppState| {
-                s.copy_to_clipboard(clean_all.clone(), "Logs ทั้งหมด");
+                s.copy_to_clipboard(clean_all.clone(), crate::tr!("Logs ทั้งหมด", "All logs"));
             },
         ));
 
@@ -513,7 +535,7 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 .py(2.0)
                 .radius(6.0)
                 .on_press(move |s: &mut AppState| {
-                    s.copy_to_clipboard(clean_line.clone(), "บรรทัด Log");
+                    s.copy_to_clipboard(clean_line.clone(), crate::tr!("บรรทัด Log", "Log line"));
                 })
                 .child(line_row),
         );
@@ -530,16 +552,16 @@ fn logs_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 .center_y()
                 .child(soft_badge(
                     if s.log_newest_first {
-                        "เรียง: ใหม่ล่าสุดอยู่ด้านบน"
+                        crate::tr!("เรียง: ใหม่ล่าสุดอยู่ด้านบน", "Order: newest on top")
                     } else {
-                        "เรียง: ใหม่ล่าสุดอยู่ด้านล่าง"
+                        crate::tr!("เรียง: ใหม่ล่าสุดอยู่ด้านล่าง", "Order: newest at bottom")
                     },
                     theme::prod_bg(),
                     theme::prod_fg(),
                     None,
                 ))
                 .child(
-                    text("คลิกที่บรรทัดใดก็ได้เพื่อ Copy บรรทัดนั้น")
+                    text(crate::tr!("คลิกที่บรรทัดใดก็ได้เพื่อ Copy บรรทัดนั้น", "Click any line to copy it"))
                         .font(k.ty.small)
                         .color(theme::text_muted()),
                 ),
@@ -648,7 +670,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 .fill(theme::metric_box_bg())
                 .border(1.0, theme::border_strong())
                 .child(
-                    text("เพิ่ม Environment Variable ใหม่")
+                    text(crate::tr!("เพิ่ม Environment Variable ใหม่", "Add an environment variable"))
                         .font(k.ty.body_medium)
                         .color(theme::text_strong()),
                 )
@@ -659,7 +681,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         .child(
                             TextInput::new(&s.new_env_key)
                                 .width(Some(240.0))
-                                .placeholder("KEY (เช่น REDIS_HOST)")
+                                .placeholder(crate::tr!("KEY (เช่น REDIS_HOST)", "KEY (e.g. REDIS_HOST)"))
                                 .on_edit(|s: &mut AppState| &mut s.new_env_key)
                                 .build(k),
                         )
@@ -677,20 +699,20 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         .gap(8.0)
                         .child(pill_icon_btn(
                             &icons::CHECK,
-                            "บันทึก",
+                            crate::tr!("บันทึก", "Save"),
                             PillVariant::Primary,
                             PillSize::Sm,
                             |s: &mut AppState| s.save_new_env(false),
                         ))
                         .child(pill_icon_btn(
                             &icons::REFRESH,
-                            "บันทึก + Restart Pod",
+                            crate::tr!("บันทึก + Restart Pod", "Save + restart pods"),
                             PillVariant::Gold,
                             PillSize::Sm,
                             |s: &mut AppState| s.save_new_env(true),
                         ))
                         .child(pill_btn(
-                            "ยกเลิก",
+                            crate::tr!("ยกเลิก", "Cancel"),
                             PillVariant::Glass,
                             PillSize::Sm,
                             |s: &mut AppState| s.cancel_edit_env(),
@@ -702,7 +724,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
     let mut matched_count = 0usize;
     if s.env_vars.is_empty() {
         rows = rows.child(
-            text("กำลังโหลดหรือไม่มี ENV variables ใน Deployment")
+            text(crate::tr!("กำลังโหลดหรือไม่มี ENV variables ใน Deployment", "Loading, or this deployment has no ENV variables"))
                 .font(k.ty.text_small)
                 .color(theme::text_muted()),
         );
@@ -735,7 +757,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                                 )
                                 .child(soft_badge(
                                     ev.source.clone(),
-                                    Color::WHITE.alpha(0.06),
+                                    theme::ink(0.06),
                                     theme::text_secondary(),
                                     Some(theme::border_subtle()),
                                 )),
@@ -744,7 +766,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                             TextInput::new(&s.editing_env_input)
                                 .large()
                                 .width(None)
-                                .placeholder("กรอกค่า ENV ใหม่...")
+                                .placeholder(crate::tr!("กรอกค่า ENV ใหม่...", "New value..."))
                                 .on_edit(|s: &mut AppState| &mut s.editing_env_input)
                                 .on_submit(|s: &mut AppState, _| s.save_editing_env(false))
                                 .build(k),
@@ -754,20 +776,20 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                                 .gap(8.0)
                                 .child(pill_icon_btn(
                                     &icons::CHECK,
-                                    "บันทึก",
+                                    crate::tr!("บันทึก", "Save"),
                                     PillVariant::Primary,
                                     PillSize::Sm,
                                     |s: &mut AppState| s.save_editing_env(false),
                                 ))
                                 .child(pill_icon_btn(
                                     &icons::REFRESH,
-                                    "บันทึก + Restart Pod",
+                                    crate::tr!("บันทึก + Restart Pod", "Save + restart pods"),
                                     PillVariant::Danger,
                                     PillSize::Sm,
                                     |s: &mut AppState| s.save_editing_env(true),
                                 ))
                                 .child(pill_btn(
-                                    "ยกเลิก",
+                                    crate::tr!("ยกเลิก", "Cancel"),
                                     PillVariant::Glass,
                                     PillSize::Sm,
                                     |s: &mut AppState| s.cancel_edit_env(),
@@ -776,7 +798,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 );
             } else {
                 let display_val = if ev.is_secret && !s.show_secrets {
-                    "•••••••••••• (ซ่อนอยู่)".to_string()
+                    crate::tr!("•••••••••••• (ซ่อนอยู่)", "•••••••••••• (hidden)").to_string()
                 } else {
                     ev.value.clone()
                 };
@@ -808,7 +830,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         )
                         .children(if matched_hidden_val {
                             Some(soft_badge(
-                                "ตรงกับ Value",
+                                crate::tr!("ตรงกับ Value", "Matches value"),
                                 theme::warn_bg(),
                                 theme::warn_fg(),
                                 None,
@@ -818,7 +840,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         })
                         .child(soft_badge(
                             ev.source.clone(),
-                            Color::WHITE.alpha(0.06),
+                            theme::ink(0.06),
                             theme::text_muted(),
                             Some(theme::border_subtle()),
                         ))
@@ -834,7 +856,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         })
                         .child(pill_icon_btn(
                             &icons::EDIT,
-                            "แก้ไข",
+                            crate::tr!("แก้ไข", "Edit"),
                             PillVariant::Glass,
                             PillSize::Sm,
                             move |s: &mut AppState| {
@@ -866,7 +888,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 .child(
                     TextInput::new(&s.env_search)
                         .width(Some(250.0))
-                        .placeholder("ค้นหา Key, Value หรือ Source...")
+                        .placeholder(crate::tr!("ค้นหา Key, Value หรือ Source...", "Search key, value or source..."))
                         .on_edit(|s: &mut AppState| &mut s.env_search)
                         .build(k),
                 )
@@ -879,7 +901,7 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 ))
                 .child(pill_icon_btn(
                     &icons::PLUS,
-                    "เพิ่ม ENV ใหม่",
+                    crate::tr!("เพิ่ม ENV ใหม่", "Add ENV"),
                     PillVariant::Primary,
                     PillSize::Sm,
                     |s: &mut AppState| {
@@ -894,9 +916,9 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         &icons::EYE
                     },
                     if s.show_secrets {
-                        "ซ่อนค่า Secret"
+                        crate::tr!("ซ่อนค่า Secret", "Hide secret values")
                     } else {
-                        "แสดงค่า Secret"
+                        crate::tr!("แสดงค่า Secret", "Show secret values")
                     },
                     if s.show_secrets {
                         PillVariant::Gold
@@ -924,4 +946,133 @@ fn env_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
 fn diagram_view(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
     let src = build_service_mermaid(svc);
     render_mermaid_zoomable(&src, s.diagram_zoom, s.diagram_fullscreen, k)
+}
+
+
+/// The "switch service" modal: every service of the current namespace, searchable.
+pub fn service_picker(s: &AppState, k: &Kit) -> El {
+    let matches = s.svc_picker_matches();
+    let total = s.snapshot.services.len();
+    let current = s.selected_service.clone().unwrap_or_default();
+
+    let mut list = col().w_full().gap(4.0);
+    if matches.is_empty() {
+        list = list.child(
+            col().w_full().padding(24.0).center().child(
+                text(crate::tr!("ไม่พบ Service ที่ตรงกับคำค้น", "No services match"))
+                    .font(k.ty.small)
+                    .color(theme::text_muted()),
+            ),
+        );
+    }
+    for svc in &matches {
+        let name = svc.name.clone();
+        let is_current = svc.name == current;
+        list = list.child(interactive_row(
+            row()
+                .key(format!("svc-pick-{}", svc.name))
+                .role("button")
+                .label(svc.name.clone())
+                .hit()
+                .w_full()
+                .gap(10.0)
+                .center_y()
+                .px(12.0)
+                .py(9.0)
+                .radius(12.0)
+                .fill(if is_current { theme::ink(0.07) } else { Color::TRANSPARENT })
+                .on_press(move |s: &mut AppState| s.switch_service(&name))
+                .child(el().size(8.0, 8.0).radius(4.0).fill(health_color(svc.health)))
+                .child(
+                    text(svc.name.clone())
+                        .font(k.ty.body_medium)
+                        .color(theme::text_strong())
+                        .grow(1.0)
+                        .shrink()
+                        .min_w(0.0),
+                )
+                .child(soft_badge(
+                    svc.role.label(),
+                    theme::ink(0.05),
+                    theme::text_secondary(),
+                    Some(theme::border_subtle()),
+                ))
+                .child(
+                    text(format!("{}/{}", svc.ready_replicas, svc.desired_replicas))
+                        .font(k.ty.small)
+                        .color(health_color(svc.health)),
+                )
+                .children(if is_current {
+                    Some(mono_icon(&icons::CHECK, 14.0, theme::text_strong()))
+                } else {
+                    None
+                }),
+        ));
+    }
+
+    let panel = col()
+        .key("svc-picker-panel")
+        .hit()
+        .w(520.0)
+        .padding(18.0)
+        .gap(12.0)
+        .radius(22.0)
+        .fill(theme::glass_card_solid())
+        .border(1.0, theme::border_glass())
+        .shadow(24.0, 60.0, Color::BLACK.alpha(0.45))
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(
+                    col()
+                        .gap(2.0)
+                        .grow(1.0)
+                        .child(
+                            text(crate::tr!("เลือก Service", "Choose a service"))
+                                .font(theme::heading_md())
+                                .color(theme::text_strong()),
+                        )
+                        .child(
+                            text(crate::tf!(
+                                "{} • {} services",
+                                "{} • {} services",
+                                s.snapshot.namespace,
+                                total
+                            ))
+                            .font(k.ty.small)
+                            .color(theme::text_muted()),
+                        ),
+                )
+                .child(crate::ui::pill::pill_icon_only(
+                    &icons::CLOSE,
+                    crate::tr!("ปิด", "Close"),
+                    PillVariant::Glass,
+                    PillSize::Sm,
+                    |s: &mut AppState| s.close_svc_picker(),
+                )),
+        )
+        .child(
+            TextInput::new(&s.svc_picker_search)
+                .width(Some(484.0))
+                .placeholder(crate::tr!("ค้นหาชื่อ service, ประเภท หรือโดเมน…", "Search name, type or domain…"))
+                .on_edit(|s: &mut AppState| &mut s.svc_picker_search)
+                .on_submit(|s: &mut AppState, _| {
+                    // Enter opens the first match.
+                    let first = s.svc_picker_matches().first().map(|x| x.name.clone());
+                    if let Some(n) = first {
+                        s.switch_service(&n);
+                    }
+                })
+                .build(k),
+        )
+        .child(if matches.len() > 7 {
+            list.scroll(ScrollSpec { stick_bottom: false }).w_full().h(380.0)
+        } else {
+            list
+        });
+
+    // Drops down from the service name; presses outside reach the scrim under it.
+    rune_kit::popover::anchored(k, panel, "svc-switcher", rune_kit::Placement::BottomStart, 8.0)
 }

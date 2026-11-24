@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# For developers: double-click to build K9s Studio from source and install it into /Applications.
-# (People who just want to use the app should download K9s-Studio-Mac.dmg instead.)
+# For developers: double-click to build Klar from source and install it into /Applications.
+# (People who just want to use the app should download Klar-Mac.dmg instead.)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "== K9s Studio: build จาก source แล้วติดตั้ง =="
+echo "== Klar: build จาก source แล้วติดตั้ง =="
 
 for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
   [ -x "$b" ] && eval "$("$b" shellenv)" && break
@@ -26,14 +26,14 @@ fi
 
 bash packaging/macos/build-app.sh
 
-SRC="dist/K9s Studio.app"
+SRC="dist/Klar.app"
 DEST="/Applications"
 [ -w "$DEST" ] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }
-rm -rf "$DEST/K9s Studio.app"
+rm -rf "$DEST/Klar.app"
 cp -R "$SRC" "$DEST/"
-xattr -dr com.apple.quarantine "$DEST/K9s Studio.app" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$DEST/Klar.app" 2>/dev/null || true
 
 echo
-echo "ติดตั้งเสร็จแล้วที่ $DEST/K9s Studio.app"
-open "$DEST/K9s Studio.app"
+echo "ติดตั้งเสร็จแล้วที่ $DEST/Klar.app"
+open "$DEST/Klar.app"
 if [ -t 0 ]; then read -r -n 1 -p "กดปุ่มใดก็ได้เพื่อปิดหน้าต่างนี้..."; echo; fi

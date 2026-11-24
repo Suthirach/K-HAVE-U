@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Builds "K9s Studio.app" and a .dmg into ./dist (macOS only).
+# Builds "Klar.app" and a .dmg into ./dist (macOS only).
 # UNIVERSAL=1 builds one binary that runs on both Apple Silicon and Intel Macs (used by CI).
 # Needs: Rust (rustup) and the ../rune checkout (see README). No Rust is needed on machines
 # that only run the finished app.
 set -euo pipefail
 
-APP_NAME="K9s Studio"
-BIN_NAME="k9s-ui"
+APP_NAME="Klar"
+BIN_NAME="klar"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 export PATH="/opt/homebrew/opt/rustup/bin:/usr/local/opt/rustup/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 
@@ -30,11 +30,12 @@ fi
 VERSION="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
 DIST="$ROOT/dist"
 APP="$DIST/$APP_NAME.app"
-DMG="$DIST/K9s-Studio-Mac.dmg"   # fixed name: the in-app updater downloads this exact file
+DMG="$DIST/Klar-Mac.dmg"   # fixed name: the in-app updater downloads this exact file
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$BIN_NAME"
+cp "$ROOT/assets/icon/Klar.icns" "$APP/Contents/Resources/Klar.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,9 +44,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key><string>com.k9sstudio.app</string>
+  <key>CFBundleIdentifier</key><string>com.klar.app</string>
   <key>CFBundleExecutable</key><string>$BIN_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>Klar</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
@@ -62,12 +64,12 @@ STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 # One-click installer: copies the app to Applications and opens it (no dragging needed)
-osacompile -o "$STAGE/Install K9s Studio.app" "$ROOT/packaging/macos/Install-K9s-Studio.applescript"
-codesign --force --deep --sign - "$STAGE/Install K9s Studio.app" || true
+osacompile -o "$STAGE/Install Klar.app" "$ROOT/packaging/macos/Install-Klar.applescript"
+codesign --force --deep --sign - "$STAGE/Install Klar.app" || true
 cp "$ROOT/packaging/macos/อ่านก่อนติดตั้ง.txt" "$STAGE/"
 # Uninstaller as a real double-click app (no Terminal window)
-osacompile -o "$STAGE/Uninstall K9s Studio.app" "$ROOT/packaging/macos/Uninstall-K9s-Studio.applescript"
-codesign --force --deep --sign - "$STAGE/Uninstall K9s Studio.app" || true
+osacompile -o "$STAGE/Uninstall Klar.app" "$ROOT/packaging/macos/Uninstall-Klar.applescript"
+codesign --force --deep --sign - "$STAGE/Uninstall Klar.app" || true
 rm -f "$DMG"
 # hdiutil's own size guess is sometimes too small ("No space left on device"): give it the
 # staged size plus headroom, and retry because CI runners occasionally report "Resource busy".

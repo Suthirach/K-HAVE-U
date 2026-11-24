@@ -152,9 +152,9 @@ pub fn mini_pill_btn<S: 'static>(
         .px(10.0)
         .center()
         .radius(999.0)
-        .fill(Color::WHITE.alpha(0.05))
-        .border(1.0, Color::WHITE.alpha(0.10))
-        .hover(Color::WHITE.alpha(0.14))
+        .fill(if theme::is_dark() { theme::ink(0.05) } else { theme::card_inner_bg() })
+        .border(1.0, theme::ink(0.10))
+        .hover(theme::ink(0.14))
         .press(Color::BLACK.alpha(0.18))
         .press_scale(PRESS_PILL)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
@@ -209,7 +209,7 @@ pub fn interactive_row(e: El) -> El {
 
 fn interactive_scaled(e: El, scale: f32) -> El {
     e.cursor(Cursor::Pointer)
-        .hover(Color::WHITE.alpha(0.06))
+        .hover(theme::ink(0.06))
         .press(Color::BLACK.alpha(0.14))
         .press_scale(scale)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
@@ -227,19 +227,19 @@ fn variant_tokens(variant: PillVariant) -> (Color, Color, Color, Color, Color) {
         ),
         // Elevated warm dark glass pill.
         PillVariant::Chrome => (
-            Color::WHITE.alpha(0.10),
-            Color::WHITE.alpha(0.18),
+            theme::ink(0.10),
+            theme::ink(0.18),
             theme::text_strong(),
             Color::BLACK.alpha(0.26),
-            Color::WHITE.alpha(0.12),
+            theme::ink(0.12),
         ),
         // Subtle warm dark glass pill.
         PillVariant::Glass => (
-            Color::WHITE.alpha(0.055),
-            Color::WHITE.alpha(0.13),
+            theme::ink(0.055),
+            theme::ink(0.13),
             theme::text_base(),
             Color::BLACK.alpha(0.20),
-            Color::WHITE.alpha(0.10),
+            theme::ink(0.10),
         ),
         // Warm amber warning / caution pill.
         PillVariant::Gold => (

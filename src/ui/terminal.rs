@@ -74,7 +74,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         ));
 
     let screen_text = if s.k9s_screen.lines.is_empty() {
-        "(รอ output จาก K9s...)".to_string()
+        crate::tr!("(รอ output จาก K9s...)", "(Waiting for K9s output...)").to_string()
     } else {
         s.k9s_screen.lines.join("\n")
     };
@@ -113,7 +113,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                         .color(theme::text_strong()),
                 )
                 .child(
-                    text("พิมพ์คีย์บอร์ดหรือกดปุ่มลัดด้านล่างเพื่อควบคุม K9s โดยตรง")
+                    text(crate::tr!("พิมพ์คีย์บอร์ดหรือกดปุ่มลัดด้านล่างเพื่อควบคุม K9s โดยตรง", "Type or use the shortcut buttons below to control K9s"))
                         .font(k.ty.text_small)
                         .color(theme::text_muted()),
                 ),

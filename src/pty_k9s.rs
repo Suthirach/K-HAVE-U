@@ -12,9 +12,9 @@ pub struct K9sScreen {
 impl Default for K9sScreen {
     fn default() -> Self {
         Self {
-            lines: vec!["กด \"Start / Connect K9s\" เพื่อเปิด K9s CLI ในหน้านี้".into()],
+            lines: vec![crate::tr!("กด \"Start / Connect K9s\" เพื่อเปิด K9s CLI ในหน้านี้", "Press \"Start / Connect K9s\" to open the K9s CLI here").into()],
             running: false,
-            status: "ยังไม่เชื่อมต่อ".into(),
+            status: crate::tr!("ยังไม่เชื่อมต่อ", "Not connected").into(),
         }
     }
 }
@@ -64,7 +64,7 @@ impl K9sPty {
             Ok(p) => p,
             Err(e) => {
                 let _ = tx.send(K9sScreen {
-                    lines: vec![format!("ไม่สามารถเปิด PTY ได้: {e}")],
+                    lines: vec![crate::tf!("ไม่สามารถเปิด PTY ได้: {e}", "Could not open a PTY: {e}")],
                     running: false,
                     status: "PTY Error".into(),
                 });
@@ -82,8 +82,8 @@ impl K9sPty {
             Err(e) => {
                 let _ = tx.send(K9sScreen {
                     lines: vec![
-                        format!("ไม่สามารถรัน k9s ได้: {e}"),
-                        "ตรวจสอบว่าติดตั้ง k9s และอยู่ใน PATH แล้ว".into(),
+                        crate::tf!("ไม่สามารถรัน k9s ได้: {e}", "Could not run k9s: {e}"),
+                        crate::tr!("ตรวจสอบว่าติดตั้ง k9s และอยู่ใน PATH แล้ว", "Check that k9s is installed and on PATH").into(),
                     ],
                     running: false,
                     status: "Spawn Error".into(),
@@ -97,7 +97,7 @@ impl K9sPty {
             Ok(r) => r,
             Err(e) => {
                 let _ = tx.send(K9sScreen {
-                    lines: vec![format!("อ่าน output จาก PTY ไม่ได้: {e}")],
+                    lines: vec![crate::tf!("อ่าน output จาก PTY ไม่ได้: {e}", "Could not read PTY output: {e}")],
                     running: false,
                     status: "Reader Error".into(),
                 });
@@ -110,7 +110,7 @@ impl K9sPty {
             Ok(w) => w,
             Err(e) => {
                 let _ = tx.send(K9sScreen {
-                    lines: vec![format!("เขียน input เข้า PTY ไม่ได้: {e}")],
+                    lines: vec![crate::tf!("เขียน input เข้า PTY ไม่ได้: {e}", "Could not write to the PTY: {e}")],
                     running: false,
                     status: "Writer Error".into(),
                 });
@@ -127,7 +127,7 @@ impl K9sPty {
         let parser = Arc::new(Mutex::new(vt100::Parser::new(32, 120, 0)));
 
         let _ = tx.send(K9sScreen {
-            lines: vec![format!("กำลังเปิด k9s -n {ns_label} ...")],
+            lines: vec![crate::tf!("กำลังเปิด k9s -n {ns_label} ...", "Opening k9s -n {ns_label} ...")],
             running: true,
             status: format!("Connected: {ns_label}"),
         });
@@ -139,7 +139,7 @@ impl K9sPty {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => {
                         let _ = tx.send(K9sScreen {
-                            lines: vec![format!("k9s (-n {ns_label}) ปิดการทำงานแล้ว")],
+                            lines: vec![crate::tf!("k9s (-n {ns_label}) ปิดการทำงานแล้ว", "k9s (-n {ns_label}) exited")],
                             running: false,
                             status: "Disconnected".into(),
                         });

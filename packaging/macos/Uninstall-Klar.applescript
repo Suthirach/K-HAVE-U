@@ -1,24 +1,24 @@
--- Uninstaller for K9s Studio. Compiled into "Uninstall K9s Studio.app" by build-app.sh.
+-- Uninstaller for Klar. Compiled into "Uninstall Klar.app" by build-app.sh.
 -- One dialog asks for permission, then everything is removed.
 
 set homePath to POSIX path of (path to home folder)
-set appPath to "/Applications/K9s Studio.app"
-set userAppPath to homePath & "Applications/K9s Studio.app"
-set dataPath to homePath & "Library/Application Support/K9s Studio"
+set appPath to "/Applications/Klar.app"
+set userAppPath to homePath & "Applications/Klar.app"
+set dataPath to homePath & "Library/Application Support/Klar"
 
-set msg to "จะลบ K9s Studio ออกจากเครื่องนี้ใช่ไหม?" & return & return & ¬
+set msg to "จะลบ Klar ออกจากเครื่องนี้ใช่ไหม?" & return & return & ¬
 	"ลบทั้งหมด จะลบ:" & return & ¬
-	"• ตัวแอป K9s Studio" & return & ¬
+	"• ตัวแอป Klar" & return & ¬
 	"• การตั้งค่า, GitHub key และเครื่องมือที่แอปโหลดมาเอง" & return & ¬
 	"• kubectl, k9s, gcloud ที่ติดตั้งด้วย Homebrew" & return & return & ¬
 	"ไม่ลบ: การล็อกอิน Google/GCP และ kubeconfig ของคุณ" & return & ¬
 	"(โปรแกรมอื่นอาจใช้ kubectl/gcloud อยู่ ถ้าไม่แน่ใจเลือก \"ลบเฉพาะแอป\")"
 
-set choice to button returned of (display dialog msg with title "K9s Studio" with icon caution ¬
+set choice to button returned of (display dialog msg with title "Klar" with icon caution ¬
 	buttons {"ยกเลิก", "ลบเฉพาะแอป", "ลบทั้งหมด"} default button "ยกเลิก" cancel button "ยกเลิก")
 
 try
-	do shell script "pkill -x k9s-ui || true"
+	do shell script "pkill -x klar || true"
 end try
 delay 1
 
@@ -30,4 +30,4 @@ if choice is "ลบทั้งหมด" then
 	end try
 end if
 
-display dialog "ลบเรียบร้อยแล้ว" with title "K9s Studio" buttons {"ตกลง"} default button "ตกลง"
+display dialog "ลบเรียบร้อยแล้ว" with title "Klar" buttons {"ตกลง"} default button "ตกลง"

@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
-title K9s Studio - ติดตั้งเครื่องมือ
-echo == K9s Studio: ติดตั้งเครื่องมือที่ต้องใช้ (kubectl, k9s, gcloud) ==
+title Klar - ติดตั้งเครื่องมือ
+echo == Klar: ติดตั้งเครื่องมือที่ต้องใช้ (kubectl, k9s, gcloud) ==
 where winget >nul 2>&1
 if errorlevel 1 (
   echo ไม่พบ winget กรุณาอัปเดต "App Installer" จาก Microsoft Store แล้วรันใหม่
@@ -25,6 +25,6 @@ if defined GCLOUD (
 )
 
 echo.
-echo เรียบร้อย ปิดหน้าต่างนี้แล้วเปิด K9s-Studio.exe ได้เลย
+echo เรียบร้อย ปิดหน้าต่างนี้แล้วเปิด Klar.exe ได้เลย
 echo (ถ้าเพิ่งติดตั้ง gcloud ให้เปิดโปรแกรมใหม่ เพื่อให้เห็น PATH ล่าสุด)
 pause

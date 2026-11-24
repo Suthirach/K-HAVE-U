@@ -12,7 +12,7 @@ use rune::{
     SpringPair, TextStyle, Transition, WheelEvent, col, el, row, text,
 };
 use rune::tok::motion;
-use rune_kit::{Kit, TextInput};
+use rune_kit::Kit;
 use rune_mermaid::{DiagramStyle, Hover};
 
 pub fn render_mermaid_zoomable(src: &str, zoom: f32, fullscreen: bool, k: &Kit) -> El {
@@ -29,7 +29,7 @@ pub fn render_mermaid_zoomable(src: &str, zoom: f32, fullscreen: bool, k: &Kit) 
     let highlight = theme::warn_dot();
     let diagram = rune_mermaid::render_with_hover(src, &style, Hover::Neighbours, highlight)
         .unwrap_or_else(|| {
-            text("ไม่สามารถวาดแผนภาพได้")
+            text(crate::tr!("ไม่สามารถวาดแผนภาพได้", "Couldn't draw the diagram"))
                 .font(k.ty.text_small)
                 .color(theme::text_muted())
         });
@@ -90,7 +90,7 @@ pub fn render_mermaid_zoomable(src: &str, zoom: f32, fullscreen: bool, k: &Kit) 
                 .gap(8.0)
                 .child(mono_icon(&icons::TOPOLOGY, 15.0, theme::text_secondary()))
                 .child(
-                    text("Service Flow Diagram (Scroll เมาส์เพื่อ Zoom)")
+                    text(crate::tr!("Service Flow Diagram (Scroll เมาส์เพื่อ Zoom)", "Service flow diagram (scroll to zoom)"))
                         .font(k.ty.body_medium)
                         .color(theme::text_strong()),
                 )
@@ -136,7 +136,7 @@ fn zoom_toolbar(pct: String) -> El {
         ))
         .child(pill_icon_btn(
             &icons::FULLSCREEN,
-            "เต็มจอ",
+            crate::tr!("เต็มจอ", "Full screen"),
             PillVariant::Primary,
             PillSize::Sm,
             |s: &mut AppState| s.diagram_fullscreen = true,
@@ -153,7 +153,7 @@ fn floating_zoom_bar(pct: String, k: &Kit) -> El {
         .fill(theme::bg_chrome().alpha(0.95))
         .border(1.0, theme::border_medium())
         .child(
-            text("Scroll เมาส์เพื่อ Zoom • ลากเพื่อเลื่อน")
+            text(crate::tr!("Scroll เมาส์เพื่อ Zoom • ลากเพื่อเลื่อน", "Scroll to zoom • drag to pan"))
                 .font(k.ty.small_medium)
                 .color(theme::text_muted()),
         )
@@ -189,7 +189,7 @@ fn floating_zoom_bar(pct: String, k: &Kit) -> El {
         ))
         .child(pill_icon_btn(
             &icons::CLOSE,
-            "ออกจากเต็มจอ (Esc)",
+            crate::tr!("ออกจากเต็มจอ (Esc)", "Exit full screen (Esc)"),
             PillVariant::Danger,
             PillSize::Sm,
             |s: &mut AppState| s.diagram_fullscreen = false,
@@ -387,10 +387,10 @@ fn infra_building_canvas(s: &AppState, fullscreen: bool) -> El {
 
     // Build Vector Connection Lines Layer using Rune Shape
     let mut lines_shape = Shape::new();
-    let ingress_line = Color::WHITE.alpha(0.45);
+    let ingress_line = theme::ink(0.45);
     let dep_line = theme::warm_accent().alpha(0.55);
     let hl_line = theme::warn_dot();
-    let dim_line = Color::WHITE.alpha(0.12);
+    let dim_line = theme::ink(0.12);
 
     // 1. Switch -> Domain Pills -> Backend Service Towers
     for (backend, dom_left, dom_right) in &domain_ports {
@@ -478,7 +478,7 @@ fn infra_building_canvas(s: &AppState, fullscreen: bool) -> El {
         .size(app_zone_w, app_zone_h)
         .absolute(20.0 * z, 20.0 * z)
         .radius(20.0 * z)
-        .fill(Color::WHITE.alpha(0.035))
+        .fill(theme::ink(0.035))
         .border(1.0, theme::border_glass())
         .padding(12.0 * z)
         .child(row().child(zone_pill(
@@ -490,7 +490,7 @@ fn infra_building_canvas(s: &AppState, fullscreen: bool) -> El {
         .size(450.0 * z, 240.0 * z)
         .absolute(20.0 * z, bottom_y)
         .radius(20.0 * z)
-        .fill(Color::WHITE.alpha(0.035))
+        .fill(theme::ink(0.035))
         .border(1.0, theme::border_glass())
         .padding(12.0 * z)
         .child(row().child(zone_pill(
@@ -502,7 +502,7 @@ fn infra_building_canvas(s: &AppState, fullscreen: bool) -> El {
         .size(560.0 * z, 240.0 * z)
         .absolute(500.0 * z, bottom_y)
         .radius(20.0 * z)
-        .fill(Color::WHITE.alpha(0.035))
+        .fill(theme::ink(0.035))
         .border(1.0, theme::border_glass())
         .padding(12.0 * z)
         .child(row().child(zone_pill("STORAGE & WORKERS CLUSTER".to_string(), z)));
@@ -641,7 +641,7 @@ fn server_tower_tile(
             .border(1.0, theme::border_subtle())
             .child(el().size(4.5 * z, 4.5 * z).radius(3.0 * z).fill(col_bar))
             .child(el().grow(1.0))
-            .child(el().w(18.0 * z).h(2.0 * z).radius(1.0).fill(Color::WHITE.alpha(0.32)))
+            .child(el().w(18.0 * z).h(2.0 * z).radius(1.0).fill(theme::ink(0.32)))
     };
 
     let tower_body = col()
@@ -815,7 +815,7 @@ fn g6_zoom_toolbar() -> El {
         ))
         .child(pill_icon_btn(
             &icons::FULLSCREEN,
-            "เต็มจอ",
+            crate::tr!("เต็มจอ", "Full screen"),
             PillVariant::Primary,
             PillSize::Sm,
             |s: &mut AppState| s.diagram_fullscreen = true,
@@ -974,7 +974,7 @@ fn floating_g6_fullscreen_bar(k: &Kit) -> El {
         ))
         .child(pill_icon_btn(
             &icons::CLOSE,
-            "ออกจากเต็มจอ (Esc)",
+            crate::tr!("ออกจากเต็มจอ (Esc)", "Exit full screen (Esc)"),
             PillVariant::Danger,
             PillSize::Sm,
             |s: &mut AppState| s.diagram_fullscreen = false,
@@ -1015,16 +1015,16 @@ pub fn view(s: &AppState, k: &Kit) -> El {
 
     let env_desc = match (snap.env, use_g6) {
         (EnvKind::Stg, true) => {
-            "STG • AntV G6 v5 — Zones layout, hover edge highlight, click node เพื่อเปิด drawer, double-click เพื่อเจาะลึก"
+            crate::tr!("STG • AntV G6 v5 — Zones layout, hover edge highlight, click node เพื่อเปิด drawer, double-click เพื่อเจาะลึก", "STG • AntV G6 v5 — zones layout, hover to highlight edges, click a node for details, double-click to drill in")
         }
         (EnvKind::Prod, true) => {
-            "PROD • AntV G6 v5 — Zones layout, hover edge highlight, click node เพื่อเปิด drawer, double-click เพื่อเจาะลึก"
+            crate::tr!("PROD • AntV G6 v5 — Zones layout, hover edge highlight, click node เพื่อเปิด drawer, double-click เพื่อเจาะลึก", "PROD • AntV G6 v5 — zones layout, hover to highlight edges, click a node for details, double-click to drill in")
         }
         (EnvKind::Stg, false) => {
-            "สภาพแวดล้อมทดสอบ (STG) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิก node เพื่อเจาะลึก"
+            crate::tr!("สภาพแวดล้อมทดสอบ (STG) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิก node เพื่อเจาะลึก", "Staging (STG) — scroll to zoom at the pointer • drag to pan • click a node to drill in")
         }
         (EnvKind::Prod, false) => {
-            "สภาพแวดล้อมจริง (PROD) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิก node เพื่อเจาะลึก"
+            crate::tr!("สภาพแวดล้อมจริง (PROD) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิก node เพื่อเจาะลึก", "Production (PROD) — scroll to zoom at the pointer • drag to pan • click a node to drill in")
         }
     };
 
@@ -1045,22 +1045,6 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     } else {
         format!("{matched_count} / {} services", snap.services.len())
     };
-
-    let mut search_bar = row()
-        .gap(6.0)
-        .center_y()
-        .child(
-            TextInput::new(&s.search)
-                .width(Some(240.0))
-                .placeholder("ค้นหา service เช่น joker, sexy...")
-                .on_edit(|s: &mut AppState| &mut s.search)
-                .build(k),
-        );
-    if !query.is_empty() {
-        search_bar = search_bar.child(pill_icon_only(&icons::CLOSE, "Clear search", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| {
-            s.search = rune::TextEdit::new("");
-        }));
-    }
 
     let header = col()
         .key("topo-header")
@@ -1101,7 +1085,6 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 .w_full()
                 .center_y()
                 .gap(12.0)
-                .child(search_bar)
                 .child(el().grow(1.0))
                 .child(topology_mode_switch(s.topology_mode))
                 .child(if use_g6 {
@@ -1182,7 +1165,7 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
         )
         .child(pill_icon_btn(
             &icons::ARROW_RIGHT,
-            "เจาะลึก Service นี้ (ENV / Logs / Spec)",
+            crate::tr!("เจาะลึก Service นี้ (ENV / Logs / Spec)", "Open this service (ENV / logs / spec)"),
             PillVariant::Primary,
             PillSize::Md,
             move |s: &mut AppState| {
@@ -1194,7 +1177,7 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 .gap(6.0)
                 .child(soft_badge(
                     svc.role.label(),
-                    Color::WHITE.alpha(0.06),
+                    theme::ink(0.06),
                     theme::text_secondary(),
                     Some(theme::border_subtle()),
                 ))
@@ -1220,7 +1203,7 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         .center_y()
                         .child(mono_icon(&icons::GLOBE, 12.0, theme::text_muted()))
                         .child(
-                            text("รับ Traffic จาก Domain:")
+                            text(crate::tr!("รับ Traffic จาก Domain:", "Receives traffic from:"))
                                 .font(k.ty.small_medium)
                                 .color(theme::text_muted()),
                         ),
@@ -1247,7 +1230,7 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                         .center_y()
                         .child(mono_icon(&icons::LINK, 12.0, theme::text_muted()))
                         .child(
-                            text("เชื่อมต่อไปยัง:")
+                            text(crate::tr!("เชื่อมต่อไปยัง:", "Connects to:"))
                                 .font(k.ty.small_medium)
                                 .color(theme::text_muted()),
                         ),
@@ -1278,7 +1261,7 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 ))
                 .child(pill_icon_btn(
                     &icons::TERMINAL,
-                    "เปิดใน K9s",
+                    crate::tr!("เปิดใน K9s", "Open in K9s"),
                     PillVariant::Glass,
                     PillSize::Sm,
                     |s: &mut AppState| {
@@ -1325,7 +1308,7 @@ fn detail_drawer(s: &AppState, svc: &ServiceInfo, k: &Kit) -> El {
                 )
                 .child(pill_icon_btn(
                     &icons::LOGS,
-                    "ดู Log",
+                    crate::tr!("ดู Log", "View logs"),
                     PillVariant::Glass,
                     PillSize::Sm,
                     move |s: &mut AppState| {

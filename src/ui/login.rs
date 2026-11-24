@@ -34,7 +34,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                         .center_y()
                         .child(crate::ui::app_icon())
                         .child(
-                            text("K9s Studio")
+                            text("Klar")
                                 .font(theme::heading_xl())
                                 .color(theme::text_strong()),
                         )
@@ -45,8 +45,14 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                             None,
                         )),
                 )
+                // Two short lines so the description never runs past the card edge.
                 .child(
-                    text("เข้าสู่ระบบด้วย Gmail / Google Account เพื่อดู Stack Diagram, สถานะ Service และ K9s CLI")
+                    text(crate::tr!("เข้าสู่ระบบด้วย Gmail / Google Account", "Sign in with Gmail / Google Account"))
+                        .font(k.ty.text_small)
+                        .color(theme::text_muted()),
+                )
+                .child(
+                    text(crate::tr!("เพื่อดู Stack Diagram, สถานะ Service และ K9s CLI", "to see the stack diagram, service health and K9s CLI"))
                         .font(k.ty.text_small)
                         .color(theme::text_muted()),
                 ),
@@ -65,7 +71,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                         &icons::GLOBE
                     },
                     if s.google_loading {
-                        "กำลังเชื่อมต่อ Google..."
+                        crate::tr!("กำลังเชื่อมต่อ Google...", "Connecting to Google...")
                     } else {
                         "Sign in with Google (Gmail)"
                     },
@@ -79,16 +85,16 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                         .center_y()
                         .child(pill_icon_btn(
                             &icons::REFRESH,
-                            "สลับบัญชี Gmail",
+                            crate::tr!("สลับบัญชี Gmail", "Switch Gmail account"),
                             PillVariant::Glass,
                             PillSize::Sm,
                             |s: &mut AppState| s.login_with_google(true),
                         ))
                         .child(
                             text(if has_oauth {
-                                "OAuth2 PKCE พร้อมใช้งาน"
+                                crate::tr!("OAuth2 PKCE พร้อมใช้งาน", "OAuth2 PKCE ready")
                             } else {
-                                "เชื่อมผ่าน gcloud Google Auth"
+                                crate::tr!("เชื่อมผ่าน gcloud Google Auth", "Uses gcloud Google Auth")
                             })
                             .font(k.ty.small_medium)
                             .color(theme::text_muted()),
@@ -101,7 +107,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 .center_y()
                 .child(el().h(1.0).grow(1.0).fill(theme::border_subtle()))
                 .child(
-                    text("หรือเข้าสู่ระบบด้วยบัญชีภายใน")
+                    text(crate::tr!("หรือเข้าสู่ระบบด้วยบัญชีภายใน", "or sign in with a local account"))
                         .font(k.ty.small_medium)
                         .color(theme::text_faint()),
                 )
@@ -119,7 +125,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                     TextInput::new(&s.login_user)
                         .large()
                         .width(None)
-                        .placeholder("เช่น admin หรือ dev")
+                        .placeholder(crate::tr!("เช่น admin หรือ dev", "admin or dev"))
                         .on_edit(|s: &mut AppState| &mut s.login_user)
                         .on_submit(|s: &mut AppState, _| s.try_login())
                         .build(k),
@@ -137,7 +143,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                     TextInput::new(&s.login_pass)
                         .large()
                         .width(None)
-                        .placeholder("กรอกรหัสผ่าน")
+                        .placeholder(crate::tr!("กรอกรหัสผ่าน", "Enter your password"))
                         .on_edit(|s: &mut AppState| &mut s.login_pass)
                         .on_submit(|s: &mut AppState, _| s.try_login())
                         .build(k),
@@ -170,7 +176,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     card = card
         .child(pill_icon_btn(
             &icons::ARROW_RIGHT,
-            "เข้าสู่ระบบ",
+            crate::tr!("เข้าสู่ระบบ", "Sign in"),
             PillVariant::Chrome,
             PillSize::Lg,
             |s: &mut AppState| s.try_login(),
@@ -180,7 +186,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 .gap(8.0)
                 .pt(4.0)
                 .child(
-                    text("บัญชีทดสอบด่วน:")
+                    text(crate::tr!("บัญชีทดสอบด่วน:", "Test accounts:"))
                         .font(k.ty.small_medium)
                         .color(theme::text_muted()),
                 )

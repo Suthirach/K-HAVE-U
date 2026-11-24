@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   macos:
-    name: Mac (Apple Silicon + Intel) -> K9s-Studio-Mac.dmg
+    name: Mac (Apple Silicon + Intel) -> Klar-Mac.dmg
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
@@ -48,10 +48,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mac
-          path: K-HAVE-U/dist/K9s-Studio-Mac.dmg
+          path: K-HAVE-U/dist/Klar-Mac.dmg
 
   windows:
-    name: Windows (x64) -> K9s-Studio-Windows-Setup.exe
+    name: Windows (x64) -> Klar-Windows-Setup.exe
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: K-HAVE-U/dist/K9s-Studio-Windows-Setup.exe
+          path: K-HAVE-U/dist/Klar-Windows-Setup.exe
 
   release:
     name: Publish release
@@ -103,4 +103,4 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: downloads/K9s-Studio-Windows-Setup.exe
+          files: downloads/Klar-Windows-Setup.exe
