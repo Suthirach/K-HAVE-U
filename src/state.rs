@@ -33,6 +33,14 @@ pub enum ServiceTab {
     Diagram,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OverviewFilter {
+    #[default]
+    All,
+    Staging,
+    Production,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WorkspaceTab {
     pub id: usize,
@@ -71,6 +79,8 @@ pub struct AppState {
     pub dark: bool,
 
     // Overview + Cluster Data
+    pub overview_filter: OverviewFilter,
+    pub pending_service_tab: Option<ServiceTab>,
     pub stg_namespaces: Vec<String>,
     pub prod_namespaces: Vec<String>,
     pub available_namespaces: Vec<String>,
@@ -164,6 +174,8 @@ impl AppState {
             env,
             namespace,
             dark: true,
+            overview_filter: OverviewFilter::All,
+            pending_service_tab: None,
             stg_namespaces,
             prod_namespaces,
             available_namespaces: Vec::new(),
@@ -258,7 +270,7 @@ impl AppState {
 
     pub fn sync_active_tab(&mut self) {
         let title = match self.page {
-            Page::Overview => "🏠 Overview".to_string(),
+            Page::Overview => "Overview".to_string(),
             Page::Namespace => format!("{} • {}", self.env.label(), self.namespace),
             Page::ServiceDetail => format!(
                 "{} • {}",
@@ -286,7 +298,7 @@ impl AppState {
         self.next_tab_id += 1;
         let wt = WorkspaceTab {
             id,
-            title: "🏠 Overview".into(),
+            title: "Overview".into(),
             page: Page::Overview,
             ns_tab: Tab::Topology,
             service_tab: ServiceTab::Info,
@@ -357,6 +369,7 @@ impl AppState {
     }
 
     pub fn drill_into_namespace(&mut self, env: EnvKind, ns: &str) {
+        self.pending_service_tab = None;
         let changed = self.env != env || self.namespace != ns;
         self.env = env;
         self.namespace = ns.to_string();
@@ -372,6 +385,32 @@ impl AppState {
                 self.start_k9s();
             }
         }
+    }
+
+    pub fn drill_into_namespace_tab(&mut self, env: EnvKind, ns: &str, tab: Tab) {
+        self.tab = tab;
+        self.drill_into_namespace(env, ns);
+        if tab == Tab::K9sCli && !self.k9s_pty.is_running() {
+            self.start_k9s();
+        }
+    }
+
+    /// Navigates into a namespace and opens its first service directly on the requested
+    /// `ServiceTab` (e.g. `Logs` or `Env`). If the namespace's snapshot is not yet loaded,
+    /// triggers a cluster fetch and automatically drills in once the snapshot arrives.
+    pub fn drill_into_namespace_service_tab(&mut self, env: EnvKind, ns: &str, service_tab: ServiceTab) {
+        let same_ns = self.env == env
+            && self.namespace == ns
+            && self.snapshot.namespace == ns
+            && !self.snapshot.services.is_empty();
+        if same_ns {
+            let first_svc = self.snapshot.services[0].name.clone();
+            self.drill_into_service(first_svc, service_tab);
+            return;
+        }
+        self.tab = Tab::Services;
+        self.drill_into_namespace(env, ns);
+        self.pending_service_tab = Some(service_tab);
     }
 
     pub fn drill_into_service(&mut self, service_name: String, initial_tab: ServiceTab) {
@@ -761,7 +800,11 @@ impl AppState {
                 K8sEvent::Snapshot(snap) => {
                     self.loading = false;
                     self.snapshot = snap;
-                    if self.page == Page::ServiceDetail && self.env_vars.is_empty() {
+                    if let Some(target_tab) = self.pending_service_tab.take() {
+                        if let Some(first_svc) = self.snapshot.services.first().map(|s| s.name.clone()) {
+                            self.drill_into_service(first_svc, target_tab);
+                        }
+                    } else if self.page == Page::ServiceDetail && self.env_vars.is_empty() {
                         if let Some(svc_name) = self.selected_service.clone() {
                             self.load_service_data(&svc_name);
                         }
@@ -837,8 +880,13 @@ struct SavedTabs {
 
 fn load_saved_tabs(stg_ns: &[String]) -> (Vec<WorkspaceTab>, usize, usize) {
     if let Ok(raw) = std::fs::read_to_string("k9s-ui-tabs.json") {
-        if let Ok(parsed) = serde_json::from_str::<SavedTabs>(&raw) {
+        if let Ok(mut parsed) = serde_json::from_str::<SavedTabs>(&raw) {
             if !parsed.tabs.is_empty() {
+                for t in &mut parsed.tabs {
+                    if t.title.starts_with("\u{1F3E0} ") {
+                        t.title = t.title.trim_start_matches("\u{1F3E0} ").to_string();
+                    }
+                }
                 let max_id = parsed.tabs.iter().map(|t| t.id).max().unwrap_or(1);
                 return (parsed.tabs, parsed.active_id, max_id + 1);
             }
@@ -848,7 +896,7 @@ fn load_saved_tabs(stg_ns: &[String]) -> (Vec<WorkspaceTab>, usize, usize) {
     (
         vec![WorkspaceTab {
             id: 1,
-            title: "🏠 Overview".into(),
+            title: "Overview".into(),
             page: Page::Overview,
             ns_tab: Tab::Topology,
             service_tab: ServiceTab::Info,

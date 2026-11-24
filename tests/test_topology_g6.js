@@ -291,8 +291,8 @@ assert(html.includes('.tooltip,'), 'HTML must contain .tooltip selector override
 assert(html.includes('.g6-tooltip,'), 'HTML must contain .g6-tooltip selector override');
 assert(html.includes('.k9s-dark-tooltip'), 'HTML must contain .k9s-dark-tooltip selector override');
 assert(html.includes('background: transparent !important'), 'Tooltips must override background to transparent');
-assert(html.includes('color: #f8fafc !important'), 'Tooltips must set high contrast white text');
-console.log('  ✔ CSS rules provide transparent wrapper and #f8fafc high contrast override for all tooltip classes');
+assert(html.includes('color: #fafaf9 !important'), 'Tooltips must set high contrast warm off-white text');
+console.log('  ✔ CSS rules provide transparent wrapper and #fafaf9 high contrast override for all tooltip classes');
 
 // 3.2 escapeHtml
 const xssPayload = '<script>alert("xss")</script>&<img src=x onerror=alert(1)>"\'';
@@ -326,7 +326,7 @@ const sampleNodeItem = [{
 }];
 
 const tooltipHtml = renderTooltipContent({}, sampleNodeItem);
-assert(tooltipHtml.includes('background:rgba(20,17,38,0.97)'), 'Tooltip must use high-contrast dark panel background');
+assert(tooltipHtml.includes('background:rgba(22,20,18,0.97)'), 'Tooltip must use high-contrast warm dark glass panel background');
 assert(tooltipHtml.includes('&lt;malicious&gt;'), 'Tooltip must escape fullName');
 assert(!tooltipHtml.includes('<script>'), 'Tooltip must never contain unescaped script tag');
 assert(!tooltipHtml.includes('<img src=x>'), 'Tooltip must never contain unescaped img tag');

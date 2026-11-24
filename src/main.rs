@@ -62,8 +62,8 @@ fn on_key(s: &mut AppState, ev: &KeyEvent, _tx: &mut Tx) -> bool {
     false
 }
 
-fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
-    let k = rune_theme_opencode::kit(s.dark && cx.system_dark() || s.dark);
+fn view(s: &AppState, _cx: &mut Cx<AppState>) -> El {
+    let k = ui::theme::warm_dark_kit();
     let base = if s.session.is_some() {
         ui::app_shell(s, k)
     } else {
@@ -102,8 +102,8 @@ fn main() {
             ("topology", scene_topology),
             ("service", scene_service_detail),
         ],
-        fonts: rune_theme_opencode::FONTS,
-        families: rune_theme_opencode::FAMILIES,
+        fonts: ui::theme::FONTS,
+        families: ui::theme::FAMILIES,
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),

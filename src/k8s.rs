@@ -955,7 +955,7 @@ pub fn build_mermaid(
 ) -> String {
     let mut lines = vec![
         "flowchart TD".to_string(),
-        format!("    INET([\"🌐 Internet / Users\"]) --> INGRESS[\"🔀 Nginx Ingress ({}) \"]", env.label()),
+        format!("    INET([\"Internet / Users\"]) --> INGRESS[\"Nginx Ingress ({}) \"]", env.label()),
     ];
 
     let mut linked_services = BTreeSet::new();
@@ -963,7 +963,7 @@ pub fn build_mermaid(
         let host_node = format!("HOST_{idx}");
         let svc_id = sanitize_id(&ing.backend_service);
         lines.push(format!("    INGRESS --> {host_node}[\"{}\"]", ing.host));
-        lines.push(format!("    {host_node} --> {svc_id}[\"⚙ {}\"]", ing.backend_service));
+        lines.push(format!("    {host_node} --> {svc_id}[\"{}\"]", ing.backend_service));
         linked_services.insert(ing.backend_service.clone());
     }
 
@@ -972,13 +972,13 @@ pub fn build_mermaid(
     for svc in services {
         let svc_id = sanitize_id(&svc.name);
         if !linked_services.contains(&svc.name) && svc.role != NodeRole::Cache && shown < 6 {
-            let icon = if svc.role == NodeRole::Worker { "⏱" } else { "⚙" };
-            lines.push(format!("    INGRESS -.-> {svc_id}[\"{icon} {}\"]", svc.name));
+            let tag = if svc.role == NodeRole::Worker { "[Worker]" } else { "[API]" };
+            lines.push(format!("    INGRESS -.-> {svc_id}[\"{tag} {}\"]", svc.name));
             shown += 1;
         }
         for target in svc.connects_to.iter().take(2) {
             let t_id = sanitize_id(target);
-            lines.push(format!("    {svc_id} --> {t_id}[(\"🗄 {target}\")]"));
+            lines.push(format!("    {svc_id} --> {t_id}[(\"{target}\")]"));
         }
     }
 
@@ -1051,19 +1051,19 @@ pub fn build_service_mermaid(svc: &ServiceInfo) -> String {
     let mut lines = vec!["flowchart TD".to_string()];
     let svc_id = sanitize_id(&svc.name);
     if svc.hosts.is_empty() {
-        lines.push(format!("    CLUSTER([\"Internal Cluster\"]) --> {svc_id}[\"⚙ {}\"]", svc.name));
+        lines.push(format!("    CLUSTER([\"Internal Cluster\"]) --> {svc_id}[\"{}\"]", svc.name));
     } else {
         for (i, h) in svc.hosts.iter().enumerate() {
-            lines.push(format!("    INET([\"🌐 Internet\"]) --> H_{i}[\"{h}\"]"));
-            lines.push(format!("    H_{i} --> {svc_id}[\"⚙ {}\"]", svc.name));
+            lines.push(format!("    INET([\"Internet\"]) --> H_{i}[\"{h}\"]"));
+            lines.push(format!("    H_{i} --> {svc_id}[\"{}\"]", svc.name));
         }
     }
     for (i, p) in svc.pods.iter().take(4).enumerate() {
-        lines.push(format!("    {svc_id} --> POD_{i}[\"📦 {}\"]", p.name));
+        lines.push(format!("    {svc_id} --> POD_{i}[\"Pod: {}\"]", p.name));
     }
     for t in &svc.connects_to {
         let tid = sanitize_id(t);
-        lines.push(format!("    {svc_id} --> {tid}[(\"🗄 {t}\")]"));
+        lines.push(format!("    {svc_id} --> {tid}[(\"{t}\")]"));
     }
     lines.join("\n")
 }

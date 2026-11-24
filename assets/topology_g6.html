@@ -6,20 +6,21 @@
   <title>K9s Studio — Cluster Topology (AntV G6 v5)</title>
   <style>
     :root {
-      --bg-top: #1d103b;
-      --bg-mid: #100c22;
-      --bg-bot: #080b14;
-      --panel-bg: rgba(18, 15, 36, 0.92);
-      --panel-border: rgba(139, 92, 246, 0.42);
-      --text-strong: #f8fafc;
-      --text-base: #cbd5e1;
-      --text-muted: #94a3b8;
-      --accent-purple: #a855f7;
-      --accent-cyan: #38bdf8;
-      --accent-gold: #f59e0b;
-      --health-ok: #22c55e;
-      --health-warn: #f59e0b;
-      --health-err: #ef4444;
+      --bg-canvas: #11100e;
+      --bg-deep: #0e0d0b;
+      --panel-bg: rgba(22, 20, 18, 0.88);
+      --panel-border: rgba(255, 255, 255, 0.11);
+      --panel-border-strong: rgba(255, 255, 255, 0.22);
+      --text-strong: #fafaf9;
+      --text-base: #e7e5e4;
+      --text-secondary: #d6d3d1;
+      --text-muted: #a8a29e;
+      --accent-light: #fafaf9;
+      --accent-dark: #11100e;
+      --accent-warm: #d9b382;
+      --health-ok: #86efac;
+      --health-warn: #fcd34d;
+      --health-err: #f87171;
     }
 
     * {
@@ -34,9 +35,13 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: radial-gradient(circle at 22% 12%, #2b125d 0%, #110d24 44%, #070a12 100%);
+      background:
+        radial-gradient(650px 360px at 14% 8%, rgba(217, 179, 130, 0.14), transparent 65%),
+        radial-gradient(520px 340px at 88% 85%, rgba(148, 163, 184, 0.11), transparent 65%),
+        var(--bg-canvas);
       color: var(--text-strong);
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", sans-serif;
+      font-family: "Plus Jakarta Sans", "Sukhumvit Set", Thonburi, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
 
     #mount {
@@ -45,7 +50,7 @@
       width: 100%;
       height: 100%;
       background-image:
-        radial-gradient(rgba(167, 139, 250, 0.13) 1px, transparent 1px);
+        radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
       background-size: 26px 26px;
     }
 
@@ -77,28 +82,38 @@
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      padding: 6px 12px;
+      padding: 6px 13px;
       border-radius: 999px;
       background: var(--panel-bg);
       border: 1px solid var(--panel-border);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38);
       font-size: 11.5px;
-      color: var(--text-base);
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
     }
 
     .hud-pill strong {
       color: var(--text-strong);
       font-weight: 600;
+      letter-spacing: -0.015em;
     }
 
     .legend-dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       display: inline-block;
       flex-shrink: 0;
+    }
+
+    .mono-svg {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: currentColor;
     }
 
     .search-box {
@@ -106,45 +121,49 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 5px 12px;
+      padding: 6px 13px;
       border-radius: 999px;
-      background: rgba(18, 15, 36, 0.95);
-      border: 1px solid rgba(168, 85, 247, 0.48);
+      background: rgba(22, 20, 18, 0.92);
+      border: 1px solid var(--panel-border);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
-      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.48);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+      color: var(--text-muted);
       transition: border-color 140ms ease, box-shadow 140ms ease;
     }
 
     .search-box:focus-within {
-      border-color: #f59e0b;
-      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25), 0 10px 28px rgba(0, 0, 0, 0.55);
+      border-color: rgba(250, 250, 249, 0.48);
+      box-shadow: 0 0 0 2px rgba(250, 250, 249, 0.14), 0 10px 28px rgba(0, 0, 0, 0.48);
+      color: var(--text-strong);
     }
 
     .search-box input {
       background: transparent;
       border: none;
       outline: none;
-      color: #f8fafc;
+      color: var(--text-strong);
+      font-family: inherit;
       font-size: 12px;
-      width: 210px;
+      width: 215px;
       user-select: text;
       -webkit-user-select: text;
     }
 
     .search-box input::placeholder {
-      color: #94a3b8;
+      color: var(--text-muted);
     }
 
     .search-count {
       font-size: 10.5px;
       font-weight: 700;
-      padding: 2px 7px;
+      padding: 2px 8px;
       border-radius: 999px;
-      background: rgba(245, 158, 11, 0.2);
+      background: rgba(252, 211, 77, 0.16);
       color: #fde68a;
-      border: 1px solid rgba(245, 158, 11, 0.45);
+      border: 1px solid rgba(252, 211, 77, 0.42);
       display: none;
+      font-variant-numeric: tabular-nums;
     }
 
     .search-count.visible {
@@ -152,37 +171,36 @@
     }
 
     .search-count.empty {
-      background: rgba(239, 68, 68, 0.2);
-      color: #fecaca;
-      border-color: rgba(239, 68, 68, 0.45);
+      background: rgba(248, 113, 113, 0.16);
+      color: #fca5a5;
+      border-color: rgba(248, 113, 113, 0.42);
     }
 
     .search-clear {
       appearance: none;
       border: none;
-      background: rgba(255, 255, 255, 0.1);
-      color: #e2e8f0;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
       width: 18px;
       height: 18px;
       border-radius: 50%;
-      font-size: 11px;
-      line-height: 18px;
-      text-align: center;
       padding: 0;
       cursor: pointer;
       display: none;
+      align-items: center;
+      justify-content: center;
     }
 
     .search-clear.visible {
-      display: inline-block;
+      display: inline-flex;
     }
 
     .search-clear:hover {
-      background: rgba(239, 68, 68, 0.35);
-      color: #ffffff;
+      background: rgba(255, 255, 255, 0.18);
+      color: var(--text-strong);
     }
 
-    /* Bottom floating toolbar (centered G6 5.0 style) */
+    /* Bottom floating toolbar (Warm Dark Glass Minimal pill dock) */
     .hud-bottom-dock {
       position: fixed;
       left: 50%;
@@ -192,34 +210,47 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 12px;
+      padding: 6px 10px;
       border-radius: 999px;
-      background: rgba(16, 14, 32, 0.94);
-      border: 1px solid rgba(168, 85, 247, 0.48);
+      background: rgba(20, 18, 16, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.13);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.56);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.52);
       max-width: calc(100vw - 28px);
       overflow-x: auto;
     }
 
     .hud-btn {
       appearance: none;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--text-strong);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-secondary);
+      font-family: inherit;
       font-size: 11.5px;
       font-weight: 600;
-      padding: 5px 10px;
+      letter-spacing: -0.01em;
+      padding: 5px 11px;
       border-radius: 999px;
       cursor: pointer;
       white-space: nowrap;
-      transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 80ms ease;
+    }
+
+    .hud-btn.icon-btn {
+      width: 26px;
+      height: 26px;
+      padding: 0;
     }
 
     .hud-btn:hover {
-      background: rgba(168, 85, 247, 0.24);
-      border-color: rgba(192, 132, 252, 0.7);
+      background: rgba(255, 255, 255, 0.13);
+      border-color: rgba(255, 255, 255, 0.24);
+      color: var(--text-strong);
     }
 
     .hud-btn:active {
@@ -227,15 +258,15 @@
     }
 
     .hud-btn.active {
-      background: linear-gradient(180deg, #7c3aed, #5b21b6);
-      border-color: #c4b5fd;
-      color: #ffffff;
+      background: var(--accent-light);
+      border-color: var(--accent-light);
+      color: var(--accent-dark);
     }
 
     .hud-sep {
       width: 1px;
       height: 16px;
-      background: rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.12);
       margin: 0 2px;
       flex-shrink: 0;
     }
@@ -244,8 +275,9 @@
       min-width: 44px;
       text-align: center;
       font-size: 11px;
-      font-weight: 700;
-      color: #e9d5ff;
+      font-weight: 600;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
     }
 
     #status-overlay {
@@ -255,9 +287,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(8, 11, 20, 0.86);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      background: rgba(17, 16, 14, 0.86);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
 
     #status-overlay.hidden {
@@ -266,25 +298,27 @@
 
     .status-card {
       max-width: 460px;
-      padding: 20px 24px;
-      border-radius: 16px;
-      background: #141126;
-      border: 1px solid rgba(168, 85, 247, 0.48);
-      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6);
+      padding: 22px 26px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
       text-align: center;
     }
 
     .status-card h3 {
       margin: 0 0 8px 0;
-      font-size: 15px;
-      color: #f8fafc;
+      font-size: 15.5px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-strong);
     }
 
     .status-card p {
       margin: 0;
       font-size: 12.5px;
       line-height: 1.5;
-      color: #94a3b8;
+      color: var(--text-muted);
     }
 
     /* High-contrast Dark Theme override for BOTH `.tooltip` (G6 v5 default class) and `.g6-tooltip` */
@@ -297,10 +331,11 @@
       box-shadow: none !important;
       padding: 0 !important;
       margin: 0 !important;
-      color: #f8fafc !important;
+      color: #fafaf9 !important;
       pointer-events: none !important;
       z-index: 80 !important;
     }
+    /*__K9S_FONT_FACE__*/
   </style>
 </head>
 <body>
@@ -309,21 +344,26 @@
   <div class="hud-top">
     <div class="hud-group">
       <div class="hud-pill" id="meta-pill">
-        <span class="legend-dot" style="background:#a855f7;"></span>
+        <span class="legend-dot" style="background:#fafaf9;"></span>
         <strong id="meta-ns">Loading topology…</strong>
-        <span id="meta-counts" style="color:#94a3b8;"></span>
+        <span id="meta-counts" style="color:#a8a29e;"></span>
       </div>
       <div class="hud-pill">
-        <span class="legend-dot" style="background:#22c55e;"></span><span>Healthy</span>
-        <span class="legend-dot" style="background:#f59e0b;margin-left:4px;"></span><span>Warning</span>
-        <span class="legend-dot" style="background:#ef4444;margin-left:4px;"></span><span>Error</span>
-        <span class="legend-dot" style="background:#38bdf8;margin-left:4px;"></span><span>Ingress</span>
-        <span class="legend-dot" style="background:#c084fc;margin-left:4px;"></span><span>Cache/DB</span>
+        <span class="legend-dot" style="background:#86efac;"></span><span>Healthy</span>
+        <span class="legend-dot" style="background:#fcd34d;margin-left:4px;"></span><span>Warning</span>
+        <span class="legend-dot" style="background:#f87171;margin-left:4px;"></span><span>Error</span>
+        <span class="legend-dot" style="background:#fafaf9;margin-left:4px;"></span><span>Ingress</span>
+        <span class="legend-dot" style="background:#d9b382;margin-left:4px;"></span><span>Cache/DB</span>
       </div>
     </div>
 
     <div class="search-box">
-      <span style="font-size:12px;color:#a78bfa;">🔍</span>
+      <span class="mono-svg" aria-hidden="true">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </span>
       <input
         id="filter-input"
         type="text"
@@ -331,7 +371,11 @@
         autocomplete="off"
       />
       <span id="search-count" class="search-count"></span>
-      <button id="search-clear" class="search-clear" title="Clear search (Esc)">✕</button>
+      <button id="search-clear" class="search-clear" title="Clear search (Esc)" aria-label="Clear search">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+          <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -343,9 +387,17 @@
     <button class="hud-btn active" id="btn-edge-curve" title="Smooth curved edges">Curves</button>
     <button class="hud-btn" id="btn-edge-poly" title="Orthogonal polyline edges">Polyline</button>
     <div class="hud-sep"></div>
-    <button class="hud-btn" id="btn-zoom-out" title="Zoom out">−</button>
+    <button class="hud-btn icon-btn" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+        <path d="M3.5 8H12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
     <span id="zoom-readout">100%</span>
-    <button class="hud-btn" id="btn-zoom-in" title="Zoom in">+</button>
+    <button class="hud-btn icon-btn" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+        <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
     <button class="hud-btn" id="btn-fit" title="Fit topology to viewport">Fit</button>
     <button class="hud-btn" id="btn-reset" title="Reset layout (Zones), search, selection, and viewport">Reset</button>
   </div>
@@ -359,6 +411,15 @@
 
   <script>
     (function () {
+      const K9S_FONT_STACK = '"Plus Jakarta Sans", "Sukhumvit Set", Thonburi, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      // Canvas labels measure text when drawn, so the embedded face must be ready first.
+      const fontsReady = (document.fonts && document.fonts.load)
+        ? Promise.all([
+            document.fonts.load('400 12px "Plus Jakarta Sans"'),
+            document.fonts.load('600 12px "Plus Jakarta Sans"'),
+          ]).catch(() => {})
+        : Promise.resolve();
+
       const CDN_URLS = [
         'https://unpkg.com/@antv/g6@5/dist/g6.min.js',
         'https://cdn.jsdelivr.net/npm/@antv/g6@5/dist/g6.min.js'
@@ -429,15 +490,32 @@
 
       function healthColors(health) {
         if (health === 'error') {
-          return { dot: '#ef4444', border: '#ef4444', badgeBg: '#450a0a', badgeStroke: '#ef4444', badgeFg: '#fecaca', label: 'ERROR' };
+          return { dot: '#f87171', border: '#f87171', badgeBg: 'rgba(239, 68, 68, 0.16)', badgeStroke: 'rgba(248, 113, 113, 0.48)', badgeFg: '#fca5a5', label: 'ERROR' };
         }
         if (health === 'warning') {
-          return { dot: '#f59e0b', border: '#f59e0b', badgeBg: '#451a03', badgeStroke: '#f59e0b', badgeFg: '#fde68a', label: 'WARN' };
+          return { dot: '#fcd34d', border: '#fcd34d', badgeBg: 'rgba(251, 191, 36, 0.15)', badgeStroke: 'rgba(252, 211, 77, 0.45)', badgeFg: '#fde68a', label: 'WARN' };
         }
         if (health === 'external') {
-          return { dot: '#94a3b8', border: '#64748b', badgeBg: '#1e293b', badgeStroke: '#64748b', badgeFg: '#cbd5e1', label: 'EXT' };
+          return { dot: '#a8a29e', border: 'rgba(255, 255, 255, 0.20)', badgeBg: 'rgba(255, 255, 255, 0.06)', badgeStroke: 'rgba(255, 255, 255, 0.18)', badgeFg: '#d6d3d1', label: 'EXT' };
         }
-        return { dot: '#22c55e', border: '#22c55e', badgeBg: '#052e16', badgeStroke: '#22c55e', badgeFg: '#86efac', label: 'HEALTHY' };
+        return { dot: '#4ade80', border: '#86efac', badgeBg: 'rgba(34, 197, 94, 0.14)', badgeStroke: 'rgba(134, 239, 172, 0.40)', badgeFg: '#86efac', label: 'HEALTHY' };
+      }
+
+      function monoIconPathForKind(kind, cx, cy) {
+        if (kind === 'switch') {
+          return `M${cx - 5} ${cy - 2.2}H${cx + 5}M${cx + 2.5} ${cy - 4.5}L${cx + 5} ${cy - 2.2}L${cx + 2.5} ${cy + 0.1}M${cx + 5} ${cy + 2.2}H${cx - 5}M${cx - 2.5} ${cy - 0.1}L${cx - 5} ${cy + 2.2}L${cx - 2.5} ${cy + 4.5}`;
+        }
+        if (kind === 'domain') {
+          return `M${cx - 5} ${cy}A5 5 0 1 0 ${cx + 5} ${cy}A5 5 0 1 0 ${cx - 5} ${cy}M${cx - 5} ${cy}H${cx + 5}M${cx} ${cy - 5}C${cx - 2.2} ${cy - 2.5} ${cx - 2.2} ${cy + 2.5} ${cx} ${cy + 5}C${cx + 2.2} ${cy + 2.5} ${cx + 2.2} ${cy - 2.5} ${cx} ${cy - 5}`;
+        }
+        if (kind === 'cache') {
+          return `M${cx - 4.5} ${cy - 3.2}C${cx - 4.5} ${cy - 4.6} ${cx + 4.5} ${cy - 4.6} ${cx + 4.5} ${cy - 3.2}C${cx + 4.5} ${cy - 1.8} ${cx - 4.5} ${cy - 1.8} ${cx - 4.5} ${cy - 3.2}V${cy + 3.2}C${cx - 4.5} ${cy + 4.6} ${cx + 4.5} ${cy + 4.6} ${cx + 4.5} ${cy + 3.2}V${cy - 3.2}M${cx - 4.5} ${cy}C${cx - 4.5} ${cy + 1.4} ${cx + 4.5} ${cy + 1.4} ${cx + 4.5} ${cy}`;
+        }
+        if (kind === 'worker') {
+          return `M${cx - 5} ${cy}A5 5 0 1 0 ${cx + 5} ${cy}A5 5 0 1 0 ${cx - 5} ${cy}M${cx} ${cy - 2.8}V${cy}L${cx + 2.2} ${cy + 1.5}`;
+        }
+        // api: minimalist layered diamond/hexagon server glyph
+        return `M${cx} ${cy - 5}L${cx + 4.6} ${cy - 2.4}V${cy + 2.4}L${cx} ${cy + 5}L${cx - 4.6} ${cy + 2.4}V${cy - 2.4}Z`;
       }
 
       function registerK8sCardNode() {
@@ -446,9 +524,9 @@
         if (!Rect || !register || !ExtensionCategory) return;
 
         /**
-         * Custom G6 v5 Rect card node where accent stripe, pod status pill, and port/role pill
-         * are rendered strictly INSIDE the card bounds (zero drifting external badges) and
-         * all inner text/pills obey `labelOpacity` so search spotlight hides non-match text cleanly.
+         * Custom G6 v5 Rect card node where accent stripe, monochrome vector icon, pod status pill,
+         * and port/role pill are rendered strictly INSIDE the card bounds (zero drifting external
+         * badges) and all inner graphics obey `labelOpacity` so search spotlight hides non-match text.
          */
         class K8sCardNode extends Rect {
           render(attributes = this.parsedAttributes, container) {
@@ -462,20 +540,41 @@
             const visible = textOpacity > 0.02;
 
             // Left status accent stripe inside the card
-            const accentColor = attributes.accentColor || '#6366f1';
+            const accentColor = attributes.accentColor || '#d9b382';
             const isCompactPill = h <= 50;
             this.upsert(
               'k8s-accent',
               'rect',
               {
-                x: -halfW + (isCompactPill ? 13 : 7),
+                x: -halfW + (isCompactPill ? 13 : 8),
                 y: -halfH + (isCompactPill ? 11 : 10),
-                width: 4,
+                width: 3.5,
                 height: Math.max(h - (isCompactPill ? 22 : 20), 12),
                 radius: 2,
                 fill: accentColor,
-                opacity: visible ? Math.max(textOpacity, 0.25) : 0.16,
+                opacity: visible ? Math.max(textOpacity, 0.25) : 0.14,
               },
+              container
+            );
+
+            // Minimalist single-color vector icon inside card header
+            const iconKind = attributes.iconKind || 'api';
+            const iconCx = -halfW + (isCompactPill ? 28 : 25);
+            const iconCy = isCompactPill ? 0 : -12;
+            this.upsert(
+              'k8s-icon',
+              'path',
+              visible
+                ? {
+                    d: monoIconPathForKind(iconKind, iconCx, iconCy),
+                    stroke: attributes.iconColor || '#d6d3d1',
+                    fill: 'none',
+                    lineWidth: 1.3,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    opacity: textOpacity,
+                  }
+                : false,
               container
             );
 
@@ -517,8 +616,8 @@
                     width: leftW,
                     height: 18,
                     radius: 9,
-                    fill: attributes.leftBadgeBg || '#052e16',
-                    stroke: attributes.leftBadgeStroke || '#22c55e',
+                    fill: attributes.leftBadgeBg || 'rgba(34, 197, 94, 0.14)',
+                    stroke: attributes.leftBadgeStroke || 'rgba(134, 239, 172, 0.40)',
                     lineWidth: 0.9,
                     opacity: textOpacity,
                   }
@@ -536,7 +635,7 @@
                     fill: attributes.leftBadgeFg || '#86efac',
                     fontSize: 9.5,
                     fontWeight: 700,
-                    fontFamily: '-apple-system, BlinkMacSystemFont, Inter, sans-serif',
+                    fontFamily: K9S_FONT_STACK,
                     textAlign: 'center',
                     textBaseline: 'middle',
                     opacity: textOpacity,
@@ -555,8 +654,8 @@
                     width: rightW,
                     height: 18,
                     radius: 9,
-                    fill: attributes.rightBadgeBg || 'rgba(148, 163, 184, 0.14)',
-                    stroke: attributes.rightBadgeStroke || 'rgba(148, 163, 184, 0.35)',
+                    fill: attributes.rightBadgeBg || 'rgba(255, 255, 255, 0.06)',
+                    stroke: attributes.rightBadgeStroke || 'rgba(255, 255, 255, 0.14)',
                     lineWidth: 0.9,
                     opacity: textOpacity,
                   }
@@ -571,10 +670,10 @@
                     x: halfW - rightW / 2 - rightPadX,
                     y: halfH - 16,
                     text: rightText,
-                    fill: attributes.rightBadgeFg || '#e2e8f0',
+                    fill: attributes.rightBadgeFg || '#d6d3d1',
                     fontSize: 9.5,
                     fontWeight: 700,
-                    fontFamily: '-apple-system, BlinkMacSystemFont, Inter, sans-serif',
+                    fontFamily: K9S_FONT_STACK,
                     textAlign: 'center',
                     textBaseline: 'middle',
                     opacity: textOpacity,
@@ -593,36 +692,40 @@
         const data = n.data || {};
         const kind = data.kind || 'api';
         const hc = healthColors(data.health || 'healthy');
+        const labelFontFamily = K9S_FONT_STACK;
 
         if (kind === 'switch') {
           return {
             size: [196, 68],
-            radius: 16,
-            fill: '#311266',
+            radius: 18,
+            fill: '#211e1b',
             fillOpacity: 1,
-            stroke: '#c4b5fd',
+            stroke: 'rgba(250, 250, 249, 0.36)',
             strokeOpacity: 1,
-            lineWidth: 2,
+            lineWidth: 1.6,
             zIndex: 1,
-            shadowColor: 'rgba(168, 85, 247, 0.42)',
+            shadowColor: 'rgba(0, 0, 0, 0.48)',
             shadowBlur: 18,
-            accentColor: '#c084fc',
-            labelText: '⇄ ' + truncate(data.label || 'Nginx Ingress', 17),
-            labelFill: '#ffffff',
+            accentColor: '#fafaf9',
+            iconKind: 'switch',
+            iconColor: '#fafaf9',
+            labelText: truncate(data.label || 'Nginx Ingress', 17),
+            labelFill: '#fafaf9',
             labelFontSize: 12.5,
             labelFontWeight: 700,
+            labelFontFamily,
             labelPlacement: 'center',
-            labelOffsetX: 4,
+            labelOffsetX: 11,
             labelOffsetY: -12,
             labelOpacity: 1,
             leftBadgeText: data.badge || '0 routes',
-            leftBadgeBg: '#1e1b4b',
-            leftBadgeStroke: '#a855f7',
-            leftBadgeFg: '#e9d5ff',
+            leftBadgeBg: 'rgba(255, 255, 255, 0.08)',
+            leftBadgeStroke: 'rgba(255, 255, 255, 0.22)',
+            leftBadgeFg: '#fafaf9',
             rightBadgeText: ':80/443',
-            rightBadgeBg: 'rgba(56, 189, 248, 0.16)',
-            rightBadgeStroke: 'rgba(56, 189, 248, 0.45)',
-            rightBadgeFg: '#bae6fd',
+            rightBadgeBg: 'rgba(0, 0, 0, 0.30)',
+            rightBadgeStroke: 'rgba(255, 255, 255, 0.14)',
+            rightBadgeFg: '#d6d3d1',
           };
         }
 
@@ -630,21 +733,24 @@
           return {
             size: [244, 46],
             radius: 23,
-            fill: '#111d3a',
+            fill: '#191714',
             fillOpacity: 1,
-            stroke: '#38bdf8',
+            stroke: 'rgba(255, 255, 255, 0.20)',
             strokeOpacity: 1,
-            lineWidth: 1.5,
+            lineWidth: 1.2,
             zIndex: 1,
-            shadowColor: 'rgba(56, 189, 248, 0.2)',
+            shadowColor: 'rgba(0, 0, 0, 0.34)',
             shadowBlur: 10,
-            accentColor: '#38bdf8',
-            labelText: '🌐 ' + truncate(data.label || '', 25),
-            labelFill: '#e0f2fe',
+            accentColor: '#d6d3d1',
+            iconKind: 'domain',
+            iconColor: '#a8a29e',
+            labelText: truncate(data.label || '', 25),
+            labelFill: '#fafaf9',
             labelFontSize: 11.5,
             labelFontWeight: 600,
+            labelFontFamily,
             labelPlacement: 'center',
-            labelOffsetX: 6,
+            labelOffsetX: 12,
             labelOffsetY: 0,
             labelOpacity: 1,
             leftBadgeText: '',
@@ -662,22 +768,25 @@
 
           return {
             size: [224, 68],
-            radius: 14,
-            fill: '#231044',
+            radius: 16,
+            fill: '#1e1b17',
             fillOpacity: 1,
-            stroke: hasIssue ? hc.border : '#c084fc',
+            stroke: hasIssue ? hc.border : 'rgba(217, 179, 130, 0.46)',
             strokeOpacity: 1,
-            lineWidth: hasIssue ? 2.4 : 1.7,
+            lineWidth: hasIssue ? 2.2 : 1.4,
             zIndex: 1,
-            shadowColor: hasIssue ? hc.border : 'rgba(192, 132, 252, 0.3)',
+            shadowColor: hasIssue ? hc.border : 'rgba(0, 0, 0, 0.44)',
             shadowBlur: 14,
-            accentColor: hasIssue ? hc.dot : '#c084fc',
-            labelText: '🗄 ' + truncate(data.label || '', 20),
-            labelFill: '#faf5ff',
+            accentColor: hasIssue ? hc.dot : '#d9b382',
+            iconKind: 'cache',
+            iconColor: '#e5c59c',
+            labelText: truncate(data.label || '', 20),
+            labelFill: '#fafaf9',
             labelFontSize: 12,
-            labelFontWeight: 700,
+            labelFontWeight: 600,
+            labelFontFamily,
             labelPlacement: 'center',
-            labelOffsetX: 4,
+            labelOffsetX: 11,
             labelOffsetY: -12,
             labelOpacity: 1,
             leftBadgeText: data.podBadge ? ('● ' + data.podBadge) : '● Cache',
@@ -685,18 +794,17 @@
             leftBadgeStroke: hc.badgeStroke,
             leftBadgeFg: hc.badgeFg,
             rightBadgeText,
-            rightBadgeBg: '#3b0764',
-            rightBadgeStroke: '#c084fc',
-            rightBadgeFg: '#f3e8ff',
+            rightBadgeBg: 'rgba(217, 179, 130, 0.14)',
+            rightBadgeStroke: 'rgba(217, 179, 130, 0.36)',
+            rightBadgeFg: '#e5c59c',
           };
         }
 
         // API or Worker node
         const isWorker = kind === 'worker';
         const hasIssue = data.health && data.health !== 'healthy';
-        const icon = isWorker ? '⏱ ' : '⚙ ';
-        const fill = isWorker ? '#181c36' : '#13192d';
-        const stroke = hasIssue ? hc.border : (isWorker ? '#818cf8' : '#6366f1');
+        const fill = isWorker ? '#1c1a17' : '#1a1815';
+        const stroke = hasIssue ? hc.border : (isWorker ? 'rgba(217, 179, 130, 0.28)' : 'rgba(255, 255, 255, 0.16)');
         const portBadge = formatPortBadge(data.ports);
         const rightBadgeText = isWorker
           ? (portBadge || 'Worker')
@@ -704,22 +812,25 @@
 
         return {
           size: [224, 68],
-          radius: 14,
+          radius: 16,
           fill,
           fillOpacity: 1,
           stroke,
           strokeOpacity: 1,
-          lineWidth: hasIssue ? 2.4 : 1.5,
+          lineWidth: hasIssue ? 2.2 : 1.25,
           zIndex: 1,
-          shadowColor: hasIssue ? hc.border : 'rgba(0, 0, 0, 0.45)',
-          shadowBlur: hasIssue ? 16 : 10,
+          shadowColor: hasIssue ? hc.border : 'rgba(0, 0, 0, 0.42)',
+          shadowBlur: hasIssue ? 16 : 12,
           accentColor: hc.dot,
-          labelText: icon + truncate(data.label || '', 20),
-          labelFill: '#f8fafc',
+          iconKind: isWorker ? 'worker' : 'api',
+          iconColor: isWorker ? '#e5c59c' : '#d6d3d1',
+          labelText: truncate(data.label || '', 20),
+          labelFill: '#fafaf9',
           labelFontSize: 12,
-          labelFontWeight: 700,
+          labelFontWeight: 600,
+          labelFontFamily,
           labelPlacement: 'center',
-          labelOffsetX: 4,
+          labelOffsetX: 11,
           labelOffsetY: -12,
           labelOpacity: 1,
           leftBadgeText: '● ' + (data.podBadge || '0/0 Pods'),
@@ -727,9 +838,9 @@
           leftBadgeStroke: hc.badgeStroke,
           leftBadgeFg: hc.badgeFg,
           rightBadgeText,
-          rightBadgeBg: isWorker ? 'rgba(129, 140, 248, 0.16)' : 'rgba(56, 189, 248, 0.14)',
-          rightBadgeStroke: isWorker ? 'rgba(129, 140, 248, 0.45)' : 'rgba(56, 189, 248, 0.4)',
-          rightBadgeFg: isWorker ? '#c7d2fe' : '#bae6fd',
+          rightBadgeBg: 'rgba(0, 0, 0, 0.28)',
+          rightBadgeStroke: 'rgba(255, 255, 255, 0.12)',
+          rightBadgeFg: isWorker ? '#e5c59c' : '#d6d3d1',
         };
       }
 
@@ -1456,23 +1567,24 @@
               style: {
                 padding: [68, 36, 36, 36],
                 radius: 20,
-                fill: (c.data && c.data.fill) || 'rgba(255, 255, 255, 0.03)',
+                fill: (c.data && c.data.fill) || 'rgba(255, 255, 255, 0.032)',
                 fillOpacity: 1,
-                stroke: (c.data && c.data.stroke) || 'rgba(196, 181, 253, 0.35)',
+                stroke: (c.data && c.data.stroke) || 'rgba(255, 255, 255, 0.16)',
                 strokeOpacity: 1,
-                lineWidth: 1.5,
+                lineWidth: 1.25,
                 lineDash: [6, 5],
                 labelText: (c.data && c.data.label) || c.id,
-                labelFill: '#f8fafc',
-                labelFontSize: 11.5,
+                labelFill: '#fafaf9',
+                labelFontSize: 11,
                 labelFontWeight: 700,
+                labelFontFamily: K9S_FONT_STACK,
                 labelPlacement: 'top',
                 labelOffsetY: 22,
                 labelOpacity: 1,
                 labelBackground: true,
                 labelBackgroundOpacity: 1,
-                labelBackgroundFill: '#1a1536',
-                labelBackgroundStroke: (c.data && c.data.stroke) || '#7c3aed',
+                labelBackgroundFill: '#1c1a17',
+                labelBackgroundStroke: (c.data && c.data.stroke) || 'rgba(255, 255, 255, 0.18)',
                 labelBackgroundLineWidth: 1,
                 labelBackgroundRadius: 999,
                 labelPadding: [5, 14],
@@ -1519,8 +1631,8 @@
           const kind = ed.kind || 'service-dep';
           const isIngress = kind === 'ingress-switch' || kind === 'ingress-route';
           const highFanIn = !isIngress && (ed.targetFanIn >= 6 || totalDepEdges >= 12);
-          const baseStroke = isIngress ? '#38bdf8' : '#c084fc';
-          const baseOpacity = isIngress ? 0.65 : (highFanIn ? 0.34 : 0.56);
+          const baseStroke = isIngress ? '#d6d3d1' : '#d9b382';
+          const baseOpacity = isIngress ? 0.54 : (highFanIn ? 0.30 : 0.50);
           const edgeType = edgeMode === 'polyline' ? 'polyline' : 'quadratic';
 
           const style = {
@@ -1589,34 +1701,34 @@
         const d = item.data || {};
 
         const cardStyle = [
-          'background:rgba(20,17,38,0.97)',
-          'border:1px solid rgba(139,92,246,0.55)',
-          'border-radius:12px',
-          'padding:12px 14px',
+          'background:rgba(22,20,18,0.97)',
+          'border:1px solid rgba(255,255,255,0.14)',
+          'border-radius:16px',
+          'padding:13px 15px',
           'min-width:240px',
           'max-width:340px',
-          'color:#f8fafc',
-          'font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,sans-serif',
+          'color:#fafaf9',
+          'font-family:'+K9S_FONT_STACK,
           'font-size:12px',
-          'box-shadow:0 16px 40px rgba(0,0,0,0.68)',
-          'backdrop-filter:blur(12px)',
-          '-webkit-backdrop-filter:blur(12px)',
+          'box-shadow:0 18px 42px rgba(0,0,0,0.65)',
+          'backdrop-filter:blur(14px)',
+          '-webkit-backdrop-filter:blur(14px)',
         ].join(';');
 
         const headerStyle = 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;';
-        const titleStyle = 'font-weight:700;font-size:13px;color:#f8fafc;word-break:break-word;';
+        const titleStyle = 'font-weight:600;font-size:13px;letter-spacing:-0.015em;color:#fafaf9;word-break:break-word;';
         const metaStyle = 'display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px;margin-top:6px;';
-        const lblStyle = 'color:#94a3b8;font-weight:500;';
-        const valStyle = 'color:#f8fafc;font-weight:500;word-break:break-word;';
-        const summaryStyle = 'margin-top:9px;padding-top:8px;border-top:1px solid rgba(148,163,184,0.18);font-size:11.5px;color:#cbd5e1;line-height:1.45;';
-        const hintStyle = 'margin-top:7px;font-size:10.5px;color:#c4b5fd;font-weight:600;';
+        const lblStyle = 'color:#a8a29e;font-weight:500;';
+        const valStyle = 'color:#fafaf9;font-weight:500;word-break:break-word;';
+        const summaryStyle = 'margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.09);font-size:11.5px;color:#d6d3d1;line-height:1.45;';
+        const hintStyle = 'margin-top:7px;font-size:10.5px;color:#e5c59c;font-weight:600;';
 
         if (item.source && item.target) {
           return `
             <div style="${cardStyle}">
               <div style="${headerStyle}">
                 <span style="${titleStyle}">${escapeHtml(d.label || 'Connection')}</span>
-                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#2e1065;color:#e9d5ff;border:1px solid rgba(168,85,247,0.5);">${escapeHtml(d.kind || 'EDGE')}</span>
+                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.08);color:#e7e5e4;border:1px solid rgba(255,255,255,0.16);">${escapeHtml(d.kind || 'EDGE')}</span>
               </div>
               <div style="${metaStyle}">
                 <span style="${lblStyle}">From</span><span style="${valStyle}">${escapeHtml(d.sourceLabel || item.source)}</span>
@@ -1632,7 +1744,7 @@
             <div style="${cardStyle}">
               <div style="${headerStyle}">
                 <span style="${titleStyle}">${escapeHtml(d.label || item.id)}</span>
-                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#312e81;color:#e0e7ff;">ZONE</span>
+                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.08);color:#fafaf9;">ZONE</span>
               </div>
               <div style="${summaryStyle}">${escapeHtml(d.description || 'Cluster zone container')}</div>
             </div>
@@ -1649,13 +1761,13 @@
           rows.push(`<span style="${lblStyle}">Pods</span><span style="${valStyle}">${escapeHtml(d.podBadge)}</span>`);
         }
         if (d.ports && d.ports !== '-') {
-          rows.push(`<span style="${lblStyle}">Ports</span><span style="color:#7dd3fc;font-weight:600;">${escapeHtml(d.ports)}</span>`);
+          rows.push(`<span style="${lblStyle}">Ports</span><span style="color:#e5c59c;font-weight:600;">${escapeHtml(d.ports)}</span>`);
         }
         if (d.fanIn > 0) {
-          rows.push(`<span style="${lblStyle}">Inbound</span><span style="color:#e9d5ff;font-weight:600;">${d.fanIn} connected services</span>`);
+          rows.push(`<span style="${lblStyle}">Inbound</span><span style="color:#e5c59c;font-weight:600;">${d.fanIn} connected services</span>`);
         }
         if (d.hosts && d.hosts.length) {
-          rows.push(`<span style="${lblStyle}">Domains</span><span style="color:#7dd3fc;word-break:break-all;">${d.hosts.map(escapeHtml).join('<br/>')}</span>`);
+          rows.push(`<span style="${lblStyle}">Domains</span><span style="color:#e5c59c;word-break:break-all;">${d.hosts.map(escapeHtml).join('<br/>')}</span>`);
         }
         if (d.connectsTo && d.connectsTo.length) {
           rows.push(`<span style="${lblStyle}">Connects To</span><span style="${valStyle}">${d.connectsTo.map(escapeHtml).join(', ')}</span>`);
@@ -2035,6 +2147,8 @@
         if (!g6Loaded || !window.G6 || !currentPayload) return;
         registerK8sCardNode();
         const buildSeq = ++graphBuildSeq;
+        await fontsReady;
+        if (buildSeq !== graphBuildSeq) return;
 
         const container = document.getElementById('mount');
         const width = Math.max(container.clientWidth || window.innerWidth || 800, 100);
@@ -2063,20 +2177,20 @@
             type: customNodeRegistered ? 'k8s-card' : 'rect',
             state: {
               selected: {
-                stroke: '#f59e0b',
-                lineWidth: 3,
-                shadowColor: 'rgba(245, 158, 11, 0.78)',
-                shadowBlur: 24,
+                stroke: '#fafaf9',
+                lineWidth: 2.8,
+                shadowColor: 'rgba(250, 250, 249, 0.42)',
+                shadowBlur: 22,
                 labelOpacity: 1,
                 fillOpacity: 1,
                 strokeOpacity: 1,
                 zIndex: 10,
               },
               'search-match': {
-                stroke: '#fbbf24',
-                lineWidth: 3.2,
-                shadowColor: 'rgba(251, 191, 36, 0.88)',
-                shadowBlur: 28,
+                stroke: '#fcd34d',
+                lineWidth: 3.0,
+                shadowColor: 'rgba(252, 211, 77, 0.65)',
+                shadowBlur: 26,
                 fillOpacity: 1,
                 strokeOpacity: 1,
                 labelOpacity: 1,
@@ -2084,24 +2198,24 @@
                 zIndex: 10,
               },
               'search-dim': {
-                fill: '#0a0c16',
-                stroke: '#1e293b',
+                fill: '#11100e',
+                stroke: '#262320',
                 fillOpacity: 0.18,
-                strokeOpacity: 0.16,
+                strokeOpacity: 0.14,
                 shadowBlur: 0,
                 labelOpacity: 0,
                 labelFill: 'transparent',
               },
               active: {
-                stroke: '#fbbf24',
-                lineWidth: 2.4,
-                shadowColor: 'rgba(251, 191, 36, 0.45)',
+                stroke: '#fafaf9',
+                lineWidth: 2.2,
+                shadowColor: 'rgba(250, 250, 249, 0.30)',
                 shadowBlur: 16,
                 labelOpacity: 1,
               },
               inactive: {
                 fillOpacity: 0.24,
-                strokeOpacity: 0.18,
+                strokeOpacity: 0.16,
                 labelOpacity: 0.28,
                 shadowBlur: 0,
               },
@@ -2110,16 +2224,16 @@
           edge: {
             state: {
               active: {
-                stroke: '#f59e0b',
+                stroke: '#fcd34d',
                 strokeOpacity: 1,
-                lineWidth: 2.8,
-                endArrowFill: '#f59e0b',
-                shadowColor: 'rgba(245, 158, 11, 0.55)',
+                lineWidth: 2.6,
+                endArrowFill: '#fcd34d',
+                shadowColor: 'rgba(252, 211, 77, 0.48)',
                 shadowBlur: 8,
                 zIndex: 10,
               },
               'search-dim': {
-                stroke: '#1e293b',
+                stroke: '#262320',
                 strokeOpacity: 0.05,
                 lineWidth: 0.8,
                 endArrow: false,
@@ -2134,8 +2248,8 @@
             type: 'rect',
             state: {
               active: {
-                stroke: '#c084fc',
-                lineWidth: 2,
+                stroke: '#fafaf9',
+                lineWidth: 1.8,
               },
               'search-dim': {
                 fillOpacity: 0.02,

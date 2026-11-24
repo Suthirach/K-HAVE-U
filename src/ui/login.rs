@@ -1,7 +1,9 @@
 use crate::state::AppState;
-use crate::ui::pill::{PillSize, PillVariant, pill_btn};
-use rune::{El, TextEdit, col, el, row, text};
-use rune_kit::{Badge, BadgeVariant, Kit, TextInput};
+use crate::ui::icons;
+use crate::ui::pill::{PillSize, PillVariant, pill_btn, pill_icon_btn, soft_badge};
+use crate::ui::theme;
+use rune::{Color, El, Shadow, TextEdit, col, el, row, text};
+use rune_kit::{Kit, TextInput};
 
 pub fn view(s: &AppState, k: &Kit) -> El {
     let c = &k.c;
@@ -12,37 +14,60 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .w(440.0)
         .padding(28.0)
         .gap(16.0)
-        .radius(k.radius.lg)
-        .fill(c.bg_base)
-        .border(1.0, c.border_base)
+        .radius(22.0)
+        .fill(theme::glass_card())
+        .border(1.0, theme::border_glass())
+        .box_shadow(Shadow {
+            x: 0.0,
+            y: 20.0,
+            blur: 48.0,
+            spread: 0.0,
+            color: Color::BLACK.alpha(0.45),
+            inset: false,
+        })
         .child(
             col()
                 .gap(6.0)
                 .child(
                     row()
-                        .gap(8.0)
+                        .gap(10.0)
                         .center_y()
-                        .child(text("K9s Studio").font(rune::TextStyle::new(22.0, 600.0)).color(c.text_strong))
-                        .child(Badge::new("STG + PROD").variant(BadgeVariant::Accent).build(k)),
+                        .child(crate::ui::app_icon())
+                        .child(
+                            text("K9s Studio")
+                                .font(theme::heading_xl())
+                                .color(theme::text_strong()),
+                        )
+                        .child(soft_badge(
+                            "STG + PROD",
+                            theme::prod_bg(),
+                            theme::prod_fg(),
+                            None,
+                        )),
                 )
                 .child(
                     text("เข้าสู่ระบบด้วย Gmail / Google Account เพื่อดู Stack Diagram, สถานะ Service และ K9s CLI")
                         .font(k.ty.text_small)
-                        .color(c.text_muted),
+                        .color(theme::text_muted()),
                 ),
         )
         .child(
             col()
-                .gap(8.0)
+                .gap(10.0)
                 .padding(14.0)
-                .radius(k.radius.md)
-                .fill(c.layer_02)
-                .border(1.0, c.border_weak)
-                .child(pill_btn(
+                .radius(16.0)
+                .fill(theme::metric_box_bg())
+                .border(1.0, theme::border_subtle())
+                .child(pill_icon_btn(
                     if s.google_loading {
-                        "⏳ กำลังเชื่อมต่อ Google..."
+                        &icons::CLOCK
                     } else {
-                        "G  Sign in with Google (Gmail)"
+                        &icons::GLOBE
+                    },
+                    if s.google_loading {
+                        "กำลังเชื่อมต่อ Google..."
+                    } else {
+                        "Sign in with Google (Gmail)"
                     },
                     PillVariant::Primary,
                     PillSize::Lg,
@@ -52,9 +77,10 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                     row()
                         .gap(8.0)
                         .center_y()
-                        .child(pill_btn(
-                            "🔄 สลับบัญชี Gmail (เปิด Browser)",
-                            PillVariant::Chrome,
+                        .child(pill_icon_btn(
+                            &icons::REFRESH,
+                            "สลับบัญชี Gmail",
+                            PillVariant::Glass,
                             PillSize::Sm,
                             |s: &mut AppState| s.login_with_google(true),
                         ))
@@ -65,7 +91,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                                 "เชื่อมผ่าน gcloud Google Auth"
                             })
                             .font(k.ty.small_medium)
-                            .color(c.text_muted),
+                            .color(theme::text_muted()),
                         ),
                 ),
         )
@@ -73,14 +99,22 @@ pub fn view(s: &AppState, k: &Kit) -> El {
             row()
                 .gap(8.0)
                 .center_y()
-                .child(el().h(1.0).grow(1.0).fill(c.border_weak))
-                .child(text("หรือเข้าสู่ระบบด้วยบัญชีภายใน").font(k.ty.small_medium).color(c.text_faint))
-                .child(el().h(1.0).grow(1.0).fill(c.border_weak)),
+                .child(el().h(1.0).grow(1.0).fill(theme::border_subtle()))
+                .child(
+                    text("หรือเข้าสู่ระบบด้วยบัญชีภายใน")
+                        .font(k.ty.small_medium)
+                        .color(theme::text_faint()),
+                )
+                .child(el().h(1.0).grow(1.0).fill(theme::border_subtle())),
         )
         .child(
             col()
                 .gap(6.0)
-                .child(text("Username").font(k.ty.text_small_medium).color(c.text_base))
+                .child(
+                    text("Username")
+                        .font(k.ty.text_small_medium)
+                        .color(theme::text_base()),
+                )
                 .child(
                     TextInput::new(&s.login_user)
                         .large()
@@ -94,7 +128,11 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .child(
             col()
                 .gap(6.0)
-                .child(text("Password").font(k.ty.text_small_medium).color(c.text_base))
+                .child(
+                    text("Password")
+                        .font(k.ty.text_small_medium)
+                        .color(theme::text_base()),
+                )
                 .child(
                     TextInput::new(&s.login_pass)
                         .large()
@@ -110,14 +148,28 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         card = card.child(
             row()
                 .padding(10.0)
-                .radius(k.radius.md)
+                .gap(8.0)
+                .center_y()
+                .radius(14.0)
                 .fill(c.danger.bg)
-                .child(text(err.clone()).font(k.ty.text_small_medium).color(c.danger.fg)),
+                .border(1.0, c.danger.border)
+                .child(icons::mono_icon(&icons::WARNING, 14.0, c.danger.fg))
+                .child(
+                    text(err.clone())
+                        .font(k.ty.text_small_medium)
+                        .color(c.danger.fg),
+                ),
         );
     }
 
     card = card
-        .child(pill_btn("เข้าสู่ระบบ", PillVariant::Chrome, PillSize::Lg, |s: &mut AppState| s.try_login()))
+        .child(pill_icon_btn(
+            &icons::ARROW_RIGHT,
+            "เข้าสู่ระบบ",
+            PillVariant::Chrome,
+            PillSize::Lg,
+            |s: &mut AppState| s.try_login(),
+        ))
         .child(
             col()
                 .gap(8.0)
@@ -125,26 +177,41 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 .child(
                     text("บัญชีทดสอบด่วน:")
                         .font(k.ty.small_medium)
-                        .color(c.text_muted),
+                        .color(theme::text_muted()),
                 )
                 .child(
                     row()
                         .gap(6.0)
-                        .child(pill_btn("Admin (STG+PROD)", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| {
-                            s.login_user = TextEdit::new("admin");
-                            s.login_pass = TextEdit::new("admin123");
-                            s.try_login();
-                        }))
-                        .child(pill_btn("Dev (STG Write)", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| {
-                            s.login_user = TextEdit::new("dev");
-                            s.login_pass = TextEdit::new("dev123");
-                            s.try_login();
-                        }))
-                        .child(pill_btn("Viewer", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| {
-                            s.login_user = TextEdit::new("viewer");
-                            s.login_pass = TextEdit::new("viewer123");
-                            s.try_login();
-                        })),
+                        .child(pill_btn(
+                            "Admin (STG+PROD)",
+                            PillVariant::Glass,
+                            PillSize::Sm,
+                            |s: &mut AppState| {
+                                s.login_user = TextEdit::new("admin");
+                                s.login_pass = TextEdit::new("admin123");
+                                s.try_login();
+                            },
+                        ))
+                        .child(pill_btn(
+                            "Dev (STG Write)",
+                            PillVariant::Glass,
+                            PillSize::Sm,
+                            |s: &mut AppState| {
+                                s.login_user = TextEdit::new("dev");
+                                s.login_pass = TextEdit::new("dev123");
+                                s.try_login();
+                            },
+                        ))
+                        .child(pill_btn(
+                            "Viewer",
+                            PillVariant::Glass,
+                            PillSize::Sm,
+                            |s: &mut AppState| {
+                                s.login_user = TextEdit::new("viewer");
+                                s.login_pass = TextEdit::new("viewer123");
+                                s.try_login();
+                            },
+                        )),
                 ),
         );
 
@@ -152,7 +219,15 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .key("login-page")
         .w_full()
         .h_full()
-        .fill(c.page)
+        .fill(theme::bg_canvas())
+        .radial_gradient(
+            [0.16, 0.10],
+            [680.0, 380.0],
+            [
+                (0.0, theme::glow_warm()),
+                (0.65, Color::TRANSPARENT),
+            ],
+        )
         .child(crate::ui::custom_titlebar(s, k))
         .child(el().grow(1.0).w_full().center().child(card))
 }

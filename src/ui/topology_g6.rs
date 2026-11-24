@@ -8,6 +8,20 @@ use std::sync::mpsc;
 
 pub const TOPOLOGY_G6_HTML: &str = include_str!("../../assets/topology_g6.html");
 
+/// The G6 page with Plus Jakarta Sans embedded, since `with_html` gives the page no base URL.
+fn topology_g6_html() -> &'static str {
+    use base64::Engine;
+    static HTML: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HTML.get_or_init(|| {
+        let font = base64::engine::general_purpose::STANDARD.encode(crate::ui::theme::SANS_FONT);
+        let face = format!(
+            "@font-face {{ font-family: \"Plus Jakarta Sans\"; font-style: normal; font-weight: 200 800; \
+             font-display: block; src: url(data:font/ttf;base64,{font}) format(\"truetype\"); }}"
+        );
+        TOPOLOGY_G6_HTML.replacen("/*__K9S_FONT_FACE__*/", &face, 1)
+    })
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TopologyViewMode {
     #[default]
@@ -186,8 +200,8 @@ pub fn build_g6_topology(
                 snap.ingresses.len()
             ),
             description: "Nginx Ingress controller and public domain routes".into(),
-            fill: "rgba(56, 189, 248, 0.055)".into(),
-            stroke: "rgba(56, 189, 248, 0.40)".into(),
+            fill: "rgba(255, 255, 255, 0.032)".into(),
+            stroke: "rgba(255, 255, 255, 0.16)".into(),
         },
     });
     if !apis.is_empty() {
@@ -197,8 +211,8 @@ pub fn build_g6_topology(
                 is_combo: true,
                 label: format!("APPLICATION SERVERS — {} ({})", snap.namespace, apis.len()),
                 description: format!("{} API/service deployments in {}", apis.len(), snap.namespace),
-                fill: "rgba(99, 102, 241, 0.06)".into(),
-                stroke: "rgba(129, 140, 248, 0.42)".into(),
+                fill: "rgba(255, 255, 255, 0.038)".into(),
+                stroke: "rgba(255, 255, 255, 0.18)".into(),
             },
         });
     }
@@ -213,8 +227,8 @@ pub fn build_g6_topology(
                     workers.len()
                 ),
                 description: "Redis / Database caches and background worker deployments".into(),
-                fill: "rgba(192, 132, 252, 0.06)".into(),
-                stroke: "rgba(192, 132, 252, 0.42)".into(),
+                fill: "rgba(217, 179, 130, 0.045)".into(),
+                stroke: "rgba(217, 179, 130, 0.28)".into(),
             },
         });
     }
@@ -837,9 +851,9 @@ impl G6WebViewHost {
             wry::WebViewBuilder::new()
                 .with_bounds(bounds)
                 .with_visible(true)
-                .with_background_color((9, 11, 20, 255))
+                .with_background_color((17, 16, 14, 255))
                 .with_accept_first_mouse(true)
-                .with_html(TOPOLOGY_G6_HTML)
+                .with_html(topology_g6_html())
                 .with_ipc_handler(move |req| {
                     if let Ok(ev) = serde_json::from_str::<TopologyWebEvent>(req.body()) {
                         let _ = tx.send(ev);
@@ -1197,6 +1211,14 @@ mod tests {
             TOPOLOGY_G6_HTML.contains("<button class=\"hud-btn\" id=\"btn-layout-dagre\""),
             "Dagre button must not be active on startup"
         );
+    }
+
+    #[test]
+    fn webview_html_embeds_plus_jakarta_sans() {
+        let html = topology_g6_html();
+        assert!(!html.contains("/*__K9S_FONT_FACE__*/"));
+        assert!(html.contains("font-family: \"Plus Jakarta Sans\"; font-style: normal; font-weight: 200 800;"));
+        assert!(html.contains("src: url(data:font/ttf;base64,AAEAAA"));
     }
 
     #[test]
