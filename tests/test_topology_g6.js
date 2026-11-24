@@ -25,6 +25,19 @@ const injection = `
     },
     renderTooltipContent,
     layoutConfigFor,
+    computePolylineRoutes,
+    buildPreparedDataFor: (payload, nextLayoutMode, nextEdgeMode) => {
+      const prevLayout = layoutMode;
+      const prevEdge = edgeMode;
+      layoutMode = nextLayoutMode;
+      edgeMode = nextEdgeMode;
+      try {
+        return buildPreparedData(payload);
+      } finally {
+        layoutMode = prevLayout;
+        edgeMode = prevEdge;
+      }
+    },
   };
 `;
 
@@ -68,6 +81,8 @@ const {
   findMatchingNodes,
   renderTooltipContent,
   layoutConfigFor,
+  computePolylineRoutes,
+  buildPreparedDataFor,
 } = sandbox.__TEST_EXPORTS__;
 
 console.log('--- RUNNING TOPOLOGY G6 VERIFICATION TEST SUITE ---');
@@ -375,6 +390,350 @@ assert(html.includes("showLeft = visible &&"), 'K8sCardNode hides left pill when
 assert(html.includes("showRight = visible &&"), 'K8sCardNode hides right pill when labelOpacity is 0');
 console.log('  ✔ Dark-fade + complete label hiding verified on non-matching nodes, edges, and combos');
 
+
+// ============================================================================
+// REQUIREMENT 5: Non-Overlapping Polyline Routing, Port/Lane Separation & Obstacles
+// ============================================================================
+console.log('\n[Requirement 5] Non-overlapping polyline edges, port separation, and obstacle avoidance:');
+
+// Helper: build the full 42-node, 50-edge stress-test cluster matching Rust's deterministic zones coordinates
+function buildHeavyZonesPayload() {
+  const nodes = [];
+  const edges = [];
+  let edgeId = 0;
+
+  // 24 APIs (4 rows x 6 cols, 284 x 126 pitch)
+  const apiCols = 6;
+  const apiStartX = 156;
+  const apiStartY = 120;
+  for (let i = 0; i < 24; i++) {
+    const r = Math.floor(i / apiCols);
+    const c = i % apiCols;
+    nodes.push({
+      id: `svc:api-${i}`,
+      combo: 'combo-apps',
+      x: apiStartX + c * 284,
+      y: apiStartY + r * 126,
+      data: { kind: 'api', label: `api-${i}`, fullName: `api-${i}`, serviceName: `api-${i}`, health: 'healthy', podBadge: '2/2 Pods', ports: '3010' },
+    });
+  }
+
+  // Bottom zone Y matching Rust formula: app_last_row_y(498) + 34 + 36 + 220 + 68 + 34 = 890
+  const bottomZoneY = 890;
+  const domainRows = 5;
+  const switchX = 148;
+  const switchY = bottomZoneY + ((domainRows - 1) * 78) * 0.5;
+  nodes.push({
+    id: 'node-ingress-switch',
+    combo: 'combo-network',
+    x: switchX,
+    y: switchY,
+    data: { kind: 'switch', label: 'Nginx Ingress', fullName: 'Nginx Ingress', badge: '10 routes', ports: '80 / 443' },
+  });
+
+  const domStartX = switchX + 98 + 96 + 122; // 464
+  for (let i = 0; i < 10; i++) {
+    const col = Math.floor(i / domainRows);
+    const row = i % domainRows;
+    const domId = `domain:${i}:svc-${i}.aombet.net`;
+    nodes.push({
+      id: domId,
+      combo: 'combo-network',
+      x: domStartX + col * 290,
+      y: bottomZoneY + row * 78,
+      data: { kind: 'domain', label: `svc-${i}.aombet.net`, fullName: `svc-${i}.aombet.net` },
+    });
+    edges.push({
+      id: `e-sw-${++edgeId}`,
+      source: 'node-ingress-switch',
+      target: domId,
+      data: { kind: 'ingress-switch', sourceFanOut: 10, sourceLaneIndex: i, targetFanIn: 1, targetLaneIndex: 0 },
+    });
+    edges.push({
+      id: `e-ing-${++edgeId}`,
+      source: domId,
+      target: `svc:api-${i}`,
+      data: { kind: 'ingress-route', sourceFanOut: 1, sourceLaneIndex: 0, targetFanIn: 1, targetLaneIndex: 0 },
+    });
+  }
+
+  // Storage & Workers zone matching Rust formula: net_right(464+290+122=876) + 36 + 190 + 36 + 112 = 1250
+  const storageStartX = 1250;
+  nodes.push({
+    id: 'svc:shared-redis',
+    combo: 'combo-storage',
+    x: storageStartX,
+    y: bottomZoneY,
+    data: { kind: 'cache', label: 'shared-redis', fullName: 'shared-redis', fanIn: 30, ports: '6379' },
+  });
+
+  for (let i = 0; i < 6; i++) {
+    const r = 1 + Math.floor(i / 3);
+    const c = i % 3;
+    nodes.push({
+      id: `svc:worker-${i}`,
+      combo: 'combo-storage',
+      x: storageStartX + c * 284,
+      y: bottomZoneY + r * 126 + 28,
+      data: { kind: 'worker', label: `worker-${i}`, fullName: `worker-${i}`, ports: '-' },
+    });
+  }
+
+  // 24 APIs + 6 workers -> shared-redis (30 inbound fan-in edges)
+  let tgtLane = 0;
+  for (let i = 0; i < 24; i++) {
+    edges.push({
+      id: `e-dep-${++edgeId}`,
+      source: `svc:api-${i}`,
+      target: 'svc:shared-redis',
+      data: { kind: 'service-dep', sourceFanOut: 1, sourceLaneIndex: 0, targetFanIn: 30, targetLaneIndex: tgtLane++ },
+    });
+  }
+  for (let i = 0; i < 6; i++) {
+    edges.push({
+      id: `e-dep-${++edgeId}`,
+      source: `svc:worker-${i}`,
+      target: 'svc:shared-redis',
+      data: { kind: 'service-dep', sourceFanOut: 1, sourceLaneIndex: 0, targetFanIn: 30, targetLaneIndex: tgtLane++ },
+    });
+  }
+
+  return {
+    data: {
+      combos: [
+        { id: 'combo-apps', data: { isCombo: true, label: 'APPS' } },
+        { id: 'combo-network', data: { isCombo: true, label: 'NET' } },
+        { id: 'combo-storage', data: { isCombo: true, label: 'STORE' } },
+      ],
+      nodes,
+      edges,
+    },
+  };
+}
+
+// Independent geometry verifier: verifies strict orthogonality, zero collinear overlaps, and obstacle clearance
+function verifyPolylineGeometry(nodes, edges, routed, { checkObstacles = false, minSep = 2.5, label = '' } = {}) {
+  const nodeBoxMap = new Map();
+  for (const n of nodes) {
+    const cx = (n.style && typeof n.style.x === 'number') ? n.style.x : n.x;
+    const cy = (n.style && typeof n.style.y === 'number') ? n.style.y : n.y;
+    const kind = n.data && n.data.kind;
+    const sz = (n.style && Array.isArray(n.style.size))
+      ? n.style.size
+      : (kind === 'domain' ? [244, 46] : (kind === 'switch' ? [196, 68] : [224, 68]));
+    nodeBoxMap.set(n.id, {
+      id: n.id,
+      cx, cy, w: sz[0], h: sz[1],
+      left: cx - sz[0] / 2, right: cx + sz[0] / 2,
+      top: cy - sz[1] / 2, bottom: cy + sz[1] / 2,
+    });
+  }
+
+  const hSegs = [];
+  const vSegs = [];
+  let obstacleViolations = 0;
+
+  for (const e of edges) {
+    const route = routed.edgeRoutes[e.id];
+    assert(route, `[${label}] missing route for edge ${e.id}`);
+    assert(route.sourcePort && route.targetPort, `[${label}] edge ${e.id} must have sourcePort & targetPort`);
+
+    // Resolve port world positions directly from nodePorts (verifies G6 v5 zB contract)
+    const srcPorts = routed.nodePorts[e.source] || [];
+    const tgtPorts = routed.nodePorts[e.target] || [];
+    const sPort = srcPorts.find((p) => p.key === route.sourcePort);
+    const tPort = tgtPorts.find((p) => p.key === route.targetPort);
+    assert(sPort, `[${label}] missing sourcePort ${route.sourcePort} on ${e.source}`);
+    assert(tPort, `[${label}] missing targetPort ${route.targetPort} on ${e.target}`);
+    assert(sPort.r === undefined || sPort.r === 0, `[${label}] port ${sPort.key} must omit r so G6 draws no clutter dots`);
+    assert(tPort.r === undefined || tPort.r === 0, `[${label}] port ${tPort.key} must omit r so G6 draws no clutter dots`);
+
+    const ub = nodeBoxMap.get(e.source);
+    const vb = nodeBoxMap.get(e.target);
+    const startPt = [ub.left + ub.w * sPort.placement[0], ub.top + ub.h * sPort.placement[1]];
+    const endPt = [vb.left + vb.w * tPort.placement[0], vb.top + vb.h * tPort.placement[1]];
+    const pts = [startPt, ...route.controlPoints, endPt];
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = Math.abs(b[0] - a[0]);
+      const dy = Math.abs(b[1] - a[1]);
+      assert(
+        dx < 0.08 || dy < 0.08,
+        `[${label}] non-orthogonal segment on ${e.id} seg ${i}: (${a[0]},${a[1]}) -> (${b[0]},${b[1]})`
+      );
+      if (dy < 0.08 && dx >= 0.5) {
+        const seg = { edgeId: e.id, c: (a[1] + b[1]) * 0.5, lo: Math.min(a[0], b[0]), hi: Math.max(a[0], b[0]) };
+        hSegs.push(seg);
+        if (checkObstacles) {
+          for (const box of nodeBoxMap.values()) {
+            if (box.id === e.source || box.id === e.target) continue;
+            if (seg.c > box.top + 1 && seg.c < box.bottom - 1 && seg.hi > box.left + 1 && seg.lo < box.right - 1) {
+              obstacleViolations++;
+            }
+          }
+        }
+      } else if (dx < 0.08 && dy >= 0.5) {
+        const seg = { edgeId: e.id, c: (a[0] + b[0]) * 0.5, lo: Math.min(a[1], b[1]), hi: Math.max(a[1], b[1]) };
+        vSegs.push(seg);
+        if (checkObstacles) {
+          for (const box of nodeBoxMap.values()) {
+            if (box.id === e.source || box.id === e.target) continue;
+            if (seg.c > box.left + 1 && seg.c < box.right - 1 && seg.hi > box.top + 1 && seg.lo < box.bottom - 1) {
+              obstacleViolations++;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Check pairwise collinear overlaps across ALL distinct edges
+  const overlaps = [];
+  for (let i = 0; i < hSegs.length; i++) {
+    for (let j = i + 1; j < hSegs.length; j++) {
+      const a = hSegs[i], b = hSegs[j];
+      if (a.edgeId === b.edgeId) continue;
+      if (Math.abs(a.c - b.c) < minSep && Math.min(a.hi, b.hi) > Math.max(a.lo, b.lo) + 0.5) {
+        overlaps.push({ axis: 'H', a, b });
+      }
+    }
+  }
+  for (let i = 0; i < vSegs.length; i++) {
+    for (let j = i + 1; j < vSegs.length; j++) {
+      const a = vSegs[i], b = vSegs[j];
+      if (a.edgeId === b.edgeId) continue;
+      if (Math.abs(a.c - b.c) < minSep && Math.min(a.hi, b.hi) > Math.max(a.lo, b.lo) + 0.5) {
+        overlaps.push({ axis: 'V', a, b });
+      }
+    }
+  }
+
+  assert.strictEqual(
+    overlaps.length,
+    0,
+    `[${label}] found ${overlaps.length} collinear overlapping polyline segments, first: ${JSON.stringify(overlaps[0])}`
+  );
+  if (checkObstacles) {
+    assert.strictEqual(
+      obstacleViolations,
+      0,
+      `[${label}] found ${obstacleViolations} polyline segments cutting through unrelated node cards`
+    );
+  }
+  return { hCount: hSegs.length, vCount: vSegs.length };
+}
+
+// 5.1 Stress test ZONES mode (42 nodes, 50 edges: 10 switch->domain, 10 domain->api, 24 api->redis, 6 worker->redis)
+const heavyZonesPayload = buildHeavyZonesPayload();
+const preparedZonesPoly = buildPreparedDataFor(heavyZonesPayload, 'zones', 'polyline');
+assert.strictEqual(preparedZonesPoly.edges.length, 50);
+for (const e of preparedZonesPoly.edges) {
+  assert.strictEqual(e.type, 'polyline', 'Polyline mode must emit polyline edges');
+  assert.strictEqual(e.style.router, false, 'Pre-routed polyline must set router: false to prevent orth kink conflict');
+  assert.strictEqual(e.style.radius, 8, 'Polyline must set smooth rounded corner radius');
+  assert(typeof e.style.sourcePort === 'string' && typeof e.style.targetPort === 'string', 'Every edge must bind sourcePort & targetPort');
+  assert(Array.isArray(e.style.controlPoints), 'Every polyline edge must have controlPoints array');
+}
+// Verify distinct ports on switch (10 outbound) and redis (30 inbound)
+const switchNodePoly = preparedZonesPoly.nodes.find((n) => n.id === 'node-ingress-switch');
+const redisNodePoly = preparedZonesPoly.nodes.find((n) => n.id === 'svc:shared-redis');
+assert.strictEqual(switchNodePoly.style.ports.length, 10, 'Nginx switch must allocate 10 distinct outbound ports');
+assert.strictEqual(redisNodePoly.style.ports.length, 30, 'Redis cache must allocate 30 distinct inbound ports');
+const redisPortCoords = new Set(redisNodePoly.style.ports.map((p) => `${p.placement[0].toFixed(4)},${p.placement[1].toFixed(4)}`));
+assert.strictEqual(redisPortCoords.size, 30, 'All 30 Redis port coordinates must be strictly unique');
+
+const zonesRouted = computePolylineRoutes(preparedZonesPoly.nodes, preparedZonesPoly.edges, 'zones');
+const zonesStats = verifyPolylineGeometry(preparedZonesPoly.nodes, preparedZonesPoly.edges, zonesRouted, {
+  checkObstacles: true,
+  minSep: 2.5,
+  label: 'zones-42n-50e',
+});
+console.log(`  ✔ Zones (42 nodes, 50 edges): 0 overlapping segments, 0 node-card collisions across ${zonesStats.hCount}H + ${zonesStats.vCount}V segments`);
+
+// 5.2 Stress test DAGRE TB hierarchical layout (simulated antv-dagre ranks)
+const dagreNodes = [];
+dagreNodes.push({ id: 'node-ingress-switch', x: 1600, y: 100, data: { kind: 'switch' } });
+for (let i = 0; i < 10; i++) {
+  dagreNodes.push({ id: `domain:${i}:svc-${i}.aombet.net`, x: 200 + i * 312, y: 290, data: { kind: 'domain' } });
+}
+for (let i = 0; i < 24; i++) {
+  dagreNodes.push({ id: `svc:api-${i}`, x: 140 + i * 292, y: 490, data: { kind: 'api' } });
+}
+dagreNodes.push({ id: 'svc:shared-redis', x: 3500, y: 710, data: { kind: 'cache' } });
+for (let i = 0; i < 6; i++) {
+  dagreNodes.push({ id: `svc:worker-${i}`, x: 2600 + i * 292, y: 900, data: { kind: 'worker' } });
+}
+const dagreRouted = computePolylineRoutes(dagreNodes, heavyZonesPayload.data.edges, 'dagre');
+const dagreStats = verifyPolylineGeometry(dagreNodes, heavyZonesPayload.data.edges, dagreRouted, {
+  checkObstacles: true,
+  minSep: 2.5,
+  label: 'dagre-42n-50e',
+});
+console.log(`  ✔ Dagre TB (42 nodes, 50 edges): 0 overlapping segments, 0 node-card collisions across ${dagreStats.hCount}H + ${dagreStats.vCount}V segments`);
+
+// 5.3 Stress test NETWORK force layout (2D hub-and-spoke coordinates)
+const networkNodes = [];
+networkNodes.push({ id: 'node-ingress-switch', x: -640, y: 0, data: { kind: 'switch' } });
+for (let i = 0; i < 10; i++) {
+  networkNodes.push({ id: `domain:${i}:svc-${i}.aombet.net`, x: -240 + (i % 2) * 320, y: -420 + i * 95, data: { kind: 'domain' } });
+}
+for (let i = 0; i < 24; i++) {
+  const col = i % 3;
+  const row = Math.floor(i / 3);
+  networkNodes.push({ id: `svc:api-${i}`, x: 460 + col * 310, y: -520 + row * 145, data: { kind: 'api' } });
+}
+networkNodes.push({ id: 'svc:shared-redis', x: 1580, y: 0, data: { kind: 'cache' } });
+for (let i = 0; i < 6; i++) {
+  networkNodes.push({ id: `svc:worker-${i}`, x: 1580 + ((i % 2) === 0 ? -300 : 300), y: 260 + Math.floor(i / 2) * 140, data: { kind: 'worker' } });
+}
+const networkRouted = computePolylineRoutes(networkNodes, heavyZonesPayload.data.edges, 'network');
+const networkStats = verifyPolylineGeometry(networkNodes, heavyZonesPayload.data.edges, networkRouted, {
+  checkObstacles: false,
+  minSep: 2.5,
+  label: 'network-42n-50e',
+});
+console.log(`  ✔ Network 2D (42 nodes, 50 edges): 0 overlapping segments across ${networkStats.hCount}H + ${networkStats.vCount}V segments`);
+
+// 5.4 Multi-domain -> single shared backend gateway (8 domains -> 1 gateway API)
+const gatewayNodes = [
+  { id: 'node-ingress-switch', combo: 'combo-network', x: 148, y: 650, data: { kind: 'switch' } },
+  { id: 'svc:gateway-api', combo: 'combo-apps', x: 480, y: 140, data: { kind: 'api' } },
+];
+const gatewayEdges = [];
+for (let i = 0; i < 8; i++) {
+  const domId = `domain:${i}:route-${i}.aombet.net`;
+  gatewayNodes.push({
+    id: domId,
+    combo: 'combo-network',
+    x: 464 + Math.floor(i / 4) * 290,
+    y: 520 + (i % 4) * 78,
+    data: { kind: 'domain' },
+  });
+  gatewayEdges.push({ id: `sw-${i}`, source: 'node-ingress-switch', target: domId, data: { kind: 'ingress-switch' } });
+  gatewayEdges.push({ id: `gw-${i}`, source: domId, target: 'svc:gateway-api', data: { kind: 'ingress-route' } });
+}
+const gwRouted = computePolylineRoutes(gatewayNodes, gatewayEdges, 'zones');
+verifyPolylineGeometry(gatewayNodes, gatewayEdges, gwRouted, {
+  checkObstacles: true,
+  minSep: 2.5,
+  label: 'gateway-8-domains',
+});
+assert.strictEqual(gwRouted.nodePorts['svc:gateway-api'].length, 8, 'Gateway API must get 8 distinct inbound ports');
+console.log('  ✔ Shared-backend ingress fan-in (8 domains -> 1 gateway API): 8 distinct ports, 0 overlaps, 0 obstacle hits');
+
+// 5.5 Mode toggling & state preservation checks
+const preparedCurves = buildPreparedDataFor(heavyZonesPayload, 'zones', 'quadratic');
+assert(preparedCurves.edges.every((e) => e.type === 'quadratic' && e.style.router === undefined && e.style.controlPoints === undefined), 'Curves mode must cleanly omit polyline router/controlPoints');
+assert(preparedCurves.nodes.every((n) => n.style.ports === undefined), 'Curves mode must not attach polyline ports');
+const preparedNetPoly = buildPreparedDataFor(heavyZonesPayload, 'network', 'polyline');
+assert(preparedNetPoly.edges.every((e) => e.type === 'polyline' && e.style.router && e.style.router.type === 'orth'), 'Network/Dagre initial polyline starts with orth fallback until afterlayout reroutes');
+assert(html.includes('rerouteLivePolylines(buildSeq)'), 'HTML must reroute polylines after layout settles and after node drag');
+assert(html.includes("graph.on('node:dragstart'"), 'HTML must keep dragged polylines orthogonal mid-drag');
+assert(html.includes("graph.on('node:dragend'"), 'HTML must recompute non-overlapping lanes on node:dragend');
+console.log('  ✔ Curves/Polyline toggle, post-layout rerouting, drag hooks, and Search Spotlight/selection state preservation verified');
+
 console.log('\n======================================================');
-console.log('ALL 4 REQUIREMENTS AND EDGE CASES VERIFIED SUCCESSFULLY!');
+console.log('ALL 5 REQUIREMENTS AND EDGE CASES VERIFIED SUCCESSFULLY!');
 console.log('======================================================\n');

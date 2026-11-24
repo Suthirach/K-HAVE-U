@@ -121,7 +121,10 @@ pub struct G6EdgeData {
     pub source_label: String,
     pub target_label: String,
     pub path: Option<String>,
+    pub source_fan_out: usize,
+    pub source_lane_index: usize,
     pub target_fan_in: usize,
+    pub target_lane_index: usize,
     pub curve_offset: f32,
 }
 
@@ -323,6 +326,15 @@ pub fn build_g6_topology(
     let mut edges: Vec<G6Edge> = Vec::new();
     let mut edge_counter = 0usize;
 
+    // Count inbound ingress routes per backend service for accurate fan-in and lane indices.
+    let mut ingress_target_totals: HashMap<&str, usize> = HashMap::new();
+    for ing in &snap.ingresses {
+        if known_services.contains(ing.backend_service.as_str()) {
+            *ingress_target_totals.entry(ing.backend_service.as_str()).or_insert(0) += 1;
+        }
+    }
+    let mut ingress_target_seen: HashMap<&str, usize> = HashMap::new();
+
     for (idx, ing) in snap.ingresses.iter().enumerate() {
         let col = idx / domain_rows;
         let row = idx % domain_rows;
@@ -367,7 +379,10 @@ pub fn build_g6_topology(
                 source_label: "Nginx Ingress".into(),
                 target_label: ing.host.clone(),
                 path: Some(ing.path.clone()),
+                source_fan_out: ingress_count,
+                source_lane_index: idx,
                 target_fan_in: 1,
+                target_lane_index: 0,
                 curve_offset: 0.0,
             },
         });
@@ -376,7 +391,24 @@ pub fn build_g6_topology(
         let target_id = service_node_id(&ing.backend_service);
         if known_services.contains(ing.backend_service.as_str()) {
             edge_counter += 1;
-            let offset = -24.0 - (idx % 4) as f32 * 10.0;
+            let tgt_total = ingress_target_totals
+                .get(ing.backend_service.as_str())
+                .copied()
+                .unwrap_or(1);
+            let tgt_lane = {
+                let entry = ingress_target_seen
+                    .entry(ing.backend_service.as_str())
+                    .or_insert(0);
+                let cur = *entry;
+                *entry += 1;
+                cur
+            };
+            let offset = if tgt_total > 1 {
+                let centered = tgt_lane as f32 - (tgt_total.saturating_sub(1) as f32) * 0.5;
+                (centered * 14.0).clamp(-64.0, 64.0)
+            } else {
+                -24.0 - (idx % 4) as f32 * 10.0
+            };
             edges.push(G6Edge {
                 id: format!("e-ing-{edge_counter}"),
                 source: dom_id,
@@ -387,7 +419,10 @@ pub fn build_g6_topology(
                     source_label: ing.host.clone(),
                     target_label: ing.backend_service.clone(),
                     path: Some(ing.path.clone()),
-                    target_fan_in: 1,
+                    source_fan_out: 1,
+                    source_lane_index: 0,
+                    target_fan_in: tgt_total,
+                    target_lane_index: tgt_lane,
                     curve_offset: offset,
                 },
             });
@@ -508,11 +543,18 @@ pub fn build_g6_topology(
     let mut seen_pairs: BTreeSet<(String, String)> = BTreeSet::new();
     for svc in &snap.services {
         let src_id = service_node_id(&svc.name);
+        let mut uniq_targets_for_svc: Vec<&String> = Vec::new();
+        let mut uniq_set: BTreeSet<&str> = BTreeSet::new();
         for target in &svc.connects_to {
             let dst_id = service_node_id(target);
-            if src_id == dst_id || !node_labels.contains_key(&dst_id) {
-                continue;
+            if src_id != dst_id && node_labels.contains_key(&dst_id) && uniq_set.insert(target.as_str()) {
+                uniq_targets_for_svc.push(target);
             }
+        }
+        let src_fan_out = uniq_targets_for_svc.len();
+
+        for (src_lane_idx, target) in uniq_targets_for_svc.into_iter().enumerate() {
+            let dst_id = service_node_id(target);
             if !seen_pairs.insert((src_id.clone(), dst_id.clone())) {
                 continue;
             }
@@ -538,7 +580,10 @@ pub fn build_g6_topology(
                     source_label: svc.name.clone(),
                     target_label: target.clone(),
                     path: None,
+                    source_fan_out: src_fan_out,
+                    source_lane_index: src_lane_idx,
                     target_fan_in: total_for_target,
+                    target_lane_index: idx_for_target,
                     curve_offset,
                 },
             });
@@ -1121,5 +1166,28 @@ mod tests {
             .find(|n| n.id == "svc:gateway-api")
             .unwrap();
         assert_eq!(gw_node.data.ports.as_deref(), Some("80, 443, 8080"));
+
+        // Verify switch -> domain fan-out lanes and domain -> gateway-api fan-in lanes are strictly distinct
+        let sw_edges: Vec<&G6Edge> = payload
+            .data
+            .edges
+            .iter()
+            .filter(|e| e.data.kind == "ingress-switch")
+            .collect();
+        assert_eq!(sw_edges.len(), 8);
+        let sw_lanes: BTreeSet<usize> = sw_edges.iter().map(|e| e.data.source_lane_index).collect();
+        assert_eq!(sw_lanes.len(), 8, "every switch->domain edge must have a unique source_lane_index");
+        assert!(sw_edges.iter().all(|e| e.data.source_fan_out == 8));
+
+        let ing_edges: Vec<&G6Edge> = payload
+            .data
+            .edges
+            .iter()
+            .filter(|e| e.data.kind == "ingress-route")
+            .collect();
+        assert_eq!(ing_edges.len(), 8);
+        let ing_lanes: BTreeSet<usize> = ing_edges.iter().map(|e| e.data.target_lane_index).collect();
+        assert_eq!(ing_lanes.len(), 8, "every domain->gateway-api edge must have a unique target_lane_index");
+        assert!(ing_edges.iter().all(|e| e.data.target_fan_in == 8));
     }
 }

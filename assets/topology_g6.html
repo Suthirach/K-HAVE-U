@@ -376,6 +376,7 @@
       let customNodeRegistered = false;
       let searchDebounce = null;
       let focusSeq = 0;
+      let graphBuildSeq = 0;
 
       const statusOverlay = document.getElementById('status-overlay');
       const statusTitle = document.getElementById('status-title');
@@ -731,6 +732,666 @@
         };
       }
 
+      function nodeSizeForKind(kind) {
+        if (kind === 'domain') return [244, 46];
+        if (kind === 'switch') return [196, 68];
+        return [224, 68];
+      }
+
+      /**
+       * Computes strictly orthogonal, obstacle-avoiding, zero-overlap polyline routes and
+       * distinct invisible perimeter port anchors for every node & edge.
+       *
+       * Works identically across `zones`, `dagre`, and `network` layouts using actual node
+       * bounding boxes so parallel edges (e.g. Nginx -> 10 domains, 24+ APIs -> Redis,
+       * domains -> shared backend) never stack onto the same coordinates.
+       */
+      function computePolylineRoutes(nodes, edges, mode) {
+        const round2 = (v) => Math.round(v * 100) / 100;
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        const OBS_PAD = 8;
+        const MIN_STUB = 14;
+        const MIN_SEG_SEP = 3.5;
+
+        const boxes = [];
+        const boxById = new Map();
+        for (let i = 0; i < (nodes || []).length; i++) {
+          const n = nodes[i];
+          if (!n || !n.id) continue;
+          const st = n.style || {};
+          const cx = typeof st.x === 'number' ? st.x : (typeof n.x === 'number' ? n.x : 0);
+          const cy = typeof st.y === 'number' ? st.y : (typeof n.y === 'number' ? n.y : 0);
+          const sz = Array.isArray(st.size) ? st.size : nodeSizeForKind(n.data && n.data.kind);
+          const w = sz[0] || 224;
+          const h = sz[1] || 68;
+          const box = {
+            id: n.id,
+            combo: n.combo || '',
+            kind: (n.data && n.data.kind) || 'api',
+            cx,
+            cy,
+            w,
+            h,
+            left: cx - w / 2,
+            right: cx + w / 2,
+            top: cy - h / 2,
+            bottom: cy + h / 2,
+          };
+          boxes.push(box);
+          boxById.set(n.id, box);
+        }
+
+        function pickEdgeSides(u, v) {
+          const dx = v.cx - u.cx;
+          const dy = v.cy - u.cy;
+          const vGap = Math.max(v.top - u.bottom, u.top - v.bottom);
+          const hGap = Math.max(v.left - u.right, u.left - v.right);
+
+          if (vGap > 0 && hGap <= 0) {
+            return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+          }
+          if (hGap > 0 && vGap <= 0) {
+            return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+          }
+          if (mode === 'dagre') {
+            if (Math.abs(dx) > Math.abs(dy) * 3.5 && hGap > 0) {
+              return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+            }
+            return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+          }
+          if (mode === 'zones') {
+            if (u.combo && v.combo && u.combo !== v.combo) {
+              return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+            }
+            if (hGap > vGap) {
+              return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+            }
+            return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+          }
+          // 'network' or generic 2D layout
+          if (Math.abs(dx) * 0.72 >= Math.abs(dy)) {
+            return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+          }
+          return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+        }
+
+        // Stage 1: Determine exit/entry sides and bucket endpoints per (nodeId, side)
+        const sideBuckets = new Map();
+        const edgeMeta = [];
+        const addBucket = (nodeId, side, entry) => {
+          const key = nodeId + ':' + side;
+          let arr = sideBuckets.get(key);
+          if (!arr) {
+            arr = [];
+            sideBuckets.set(key, arr);
+          }
+          arr.push(entry);
+        };
+
+        for (let i = 0; i < (edges || []).length; i++) {
+          const e = edges[i];
+          if (!e || !e.id || e.source === e.target) continue;
+          const u = boxById.get(e.source);
+          const v = boxById.get(e.target);
+          if (!u || !v) continue;
+          const [sSide, tSide] = pickEdgeSides(u, v);
+          const meta = {
+            edge: e,
+            u,
+            v,
+            sSide,
+            tSide,
+            sPortKey: 'ps-' + e.id,
+            tPortKey: 'pt-' + e.id,
+            sx: u.cx,
+            sy: u.cy,
+            tx: v.cx,
+            ty: v.cy,
+            sRank: 0,
+            sCount: 1,
+            tRank: 0,
+            tCount: 1,
+          };
+          edgeMeta.push(meta);
+          addBucket(u.id, sSide, { meta, isSource: true, other: v });
+          addBucket(v.id, tSide, { meta, isSource: false, other: u });
+        }
+
+        // Stage 2: Sort each side bucket by opposite endpoint coordinate to minimize crossings
+        // and assign distinct perimeter port anchors (omitting `r` so G6 keeps them invisible).
+        const nodePorts = {};
+        for (const box of boxes) {
+          nodePorts[box.id] = [];
+        }
+
+        for (const [bucketKey, items] of sideBuckets.entries()) {
+          const sepIdx = bucketKey.lastIndexOf(':');
+          const nodeId = bucketKey.slice(0, sepIdx);
+          const side = bucketKey.slice(sepIdx + 1);
+          const box = boxById.get(nodeId);
+          const isHorizSide = side === 'top' || side === 'bottom';
+
+          items.sort((a, b) => {
+            if (isHorizSide) {
+              if (Math.abs(a.other.cx - b.other.cx) > 0.5) return a.other.cx - b.other.cx;
+              if (Math.abs(a.other.cy - b.other.cy) > 0.5) return a.other.cy - b.other.cy;
+            } else {
+              if (Math.abs(a.other.cy - b.other.cy) > 0.5) return a.other.cy - b.other.cy;
+              if (Math.abs(a.other.cx - b.other.cx) > 0.5) return a.other.cx - b.other.cx;
+            }
+            const aLane = a.isSource
+              ? ((a.meta.edge.data && a.meta.edge.data.sourceLaneIndex) || 0)
+              : ((a.meta.edge.data && a.meta.edge.data.targetLaneIndex) || 0);
+            const bLane = b.isSource
+              ? ((b.meta.edge.data && b.meta.edge.data.sourceLaneIndex) || 0)
+              : ((b.meta.edge.data && b.meta.edge.data.targetLaneIndex) || 0);
+            if (aLane !== bLane) return aLane - bLane;
+            return String(a.meta.edge.id).localeCompare(String(b.meta.edge.id));
+          });
+
+          const count = items.length;
+          const pad = isHorizSide ? 0.055 : 0.09;
+          for (let i = 0; i < count; i++) {
+            const item = items[i];
+            const t = count === 1 ? 0.5 : (pad + (1 - 2 * pad) * (i / (count - 1)));
+            let rx, ry;
+            if (side === 'top') { rx = t; ry = 0; }
+            else if (side === 'bottom') { rx = t; ry = 1; }
+            else if (side === 'left') { rx = 0; ry = t; }
+            else { rx = 1; ry = t; }
+
+            const px = round2(box.left + box.w * rx);
+            const py = round2(box.top + box.h * ry);
+            const portKey = item.isSource ? item.meta.sPortKey : item.meta.tPortKey;
+            nodePorts[nodeId].push({ key: portKey, placement: [rx, ry] });
+
+            if (item.isSource) {
+              item.meta.sx = px;
+              item.meta.sy = py;
+              item.meta.sRank = i;
+              item.meta.sCount = count;
+            } else {
+              item.meta.tx = px;
+              item.meta.ty = py;
+              item.meta.tRank = i;
+              item.meta.tCount = count;
+            }
+          }
+        }
+
+        // Stage 3: Global horizontal & vertical segment occupancy tables for strict zero-overlap
+        const occH = []; // { c: y, lo: minX, hi: maxX, edgeId }
+        const occV = []; // { c: x, lo: minY, hi: maxY, edgeId }
+
+        function hasSegOverlap(list, c, a, b, sep, edgeId) {
+          const lo = Math.min(a, b);
+          const hi = Math.max(a, b);
+          if (hi - lo < 0.25) return false;
+          for (let i = 0; i < list.length; i++) {
+            const s = list[i];
+            if (s.edgeId === edgeId) continue;
+            if (Math.abs(s.c - c) < sep && Math.min(hi, s.hi) > Math.max(lo, s.lo) - 0.5) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        function registerPathSegments(pts, edgeId) {
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            if (Math.abs(p1[1] - p2[1]) < 0.05 && Math.abs(p1[0] - p2[0]) >= 0.25) {
+              occH.push({
+                c: round2((p1[1] + p2[1]) * 0.5),
+                lo: Math.min(p1[0], p2[0]),
+                hi: Math.max(p1[0], p2[0]),
+                edgeId,
+              });
+            } else if (Math.abs(p1[0] - p2[0]) < 0.05 && Math.abs(p1[1] - p2[1]) >= 0.25) {
+              occV.push({
+                c: round2((p1[0] + p2[0]) * 0.5),
+                lo: Math.min(p1[1], p2[1]),
+                hi: Math.max(p1[1], p2[1]),
+                edgeId,
+              });
+            }
+          }
+        }
+
+        // Pre-reserve short port stub guards so earlier corridors never stack onto another edge's entry/exit stub
+        const GUARD_LEN = 10;
+        for (const m of edgeMeta) {
+          const id = m.edge.id;
+          if (m.sSide === 'bottom') occV.push({ c: m.sx, lo: m.sy, hi: m.sy + GUARD_LEN, edgeId: id });
+          else if (m.sSide === 'top') occV.push({ c: m.sx, lo: m.sy - GUARD_LEN, hi: m.sy, edgeId: id });
+          else if (m.sSide === 'right') occH.push({ c: m.sy, lo: m.sx, hi: m.sx + GUARD_LEN, edgeId: id });
+          else occH.push({ c: m.sy, lo: m.sx - GUARD_LEN, hi: m.sx, edgeId: id });
+
+          if (m.tSide === 'bottom') occV.push({ c: m.tx, lo: m.ty, hi: m.ty + GUARD_LEN, edgeId: id });
+          else if (m.tSide === 'top') occV.push({ c: m.tx, lo: m.ty - GUARD_LEN, hi: m.ty, edgeId: id });
+          else if (m.tSide === 'right') occH.push({ c: m.ty, lo: m.tx, hi: m.tx + GUARD_LEN, edgeId: id });
+          else occH.push({ c: m.ty, lo: m.tx - GUARD_LEN, hi: m.tx, edgeId: id });
+        }
+
+        // Stage 4: Axis-symmetric obstacle-avoiding orthogonal lane router
+        // Routes vertical-primary edges directly and horizontal-primary edges via exact (x <-> y) transpose.
+        function routeVerticalPrimary(sx, sy, sDir, tx, ty, tDir, uId, vId, edgeId, prefBias, tBoxes, tOccH, tOccV) {
+          function hBlocked(y, x1, x2) {
+            const lo = Math.min(x1, x2);
+            const hi = Math.max(x1, x2);
+            if (hi - lo < 0.25) return false;
+            for (let i = 0; i < tBoxes.length; i++) {
+              const b = tBoxes[i];
+              const pad = (b.id === uId || b.id === vId) ? -1 : OBS_PAD;
+              if (y > b.top - pad && y < b.bottom + pad && hi > b.left - pad && lo < b.right + pad) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          function vBlocked(x, y1, y2) {
+            const lo = Math.min(y1, y2);
+            const hi = Math.max(y1, y2);
+            if (hi - lo < 0.25) return false;
+            for (let i = 0; i < tBoxes.length; i++) {
+              const b = tBoxes[i];
+              const pad = (b.id === uId || b.id === vId) ? -1 : OBS_PAD;
+              if (x > b.left - pad && x < b.right + pad && hi > b.top - pad && lo < b.bottom + pad) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          function computeReachY(x, startY, dir, limitY) {
+            let reach = limitY;
+            for (let i = 0; i < tBoxes.length; i++) {
+              const b = tBoxes[i];
+              if (b.id === uId || b.id === vId) continue;
+              if (x > b.left - OBS_PAD && x < b.right + OBS_PAD) {
+                if (dir > 0 && b.top - OBS_PAD > startY + 2) {
+                  reach = Math.min(reach, b.top - OBS_PAD);
+                } else if (dir < 0 && b.bottom + OBS_PAD < startY - 2) {
+                  reach = Math.max(reach, b.bottom + OBS_PAD);
+                }
+              }
+            }
+            return reach;
+          }
+
+          function findOpenIntervalsX(y1, y2) {
+            const lo = Math.min(y1, y2);
+            const hi = Math.max(y1, y2);
+            const blocked = [];
+            for (let i = 0; i < tBoxes.length; i++) {
+              const b = tBoxes[i];
+              if (b.id === uId || b.id === vId) continue;
+              if (hi > b.top - OBS_PAD && lo < b.bottom + OBS_PAD) {
+                blocked.push([b.left - OBS_PAD, b.right + OBS_PAD]);
+              }
+            }
+            if (!blocked.length) {
+              return [[-1e6, 1e6]];
+            }
+            blocked.sort((a, b) => a[0] - b[0]);
+            const merged = [blocked[0].slice()];
+            for (let i = 1; i < blocked.length; i++) {
+              const cur = blocked[i];
+              const prev = merged[merged.length - 1];
+              if (cur[0] <= prev[1] + 4) {
+                prev[1] = Math.max(prev[1], cur[1]);
+              } else {
+                merged.push(cur.slice());
+              }
+            }
+            const open = [];
+            open.push([merged[0][0] - 240, merged[0][0]]);
+            for (let i = 0; i < merged.length - 1; i++) {
+              if (merged[i + 1][0] - merged[i][1] >= 4) {
+                open.push([merged[i][1], merged[i + 1][0]]);
+              }
+            }
+            open.push([merged[merged.length - 1][1], merged[merged.length - 1][1] + 240]);
+            return open;
+          }
+
+          function findOpenIntervalsY(x1, x2) {
+            const lo = Math.min(x1, x2);
+            const hi = Math.max(x1, x2);
+            const blocked = [];
+            for (let i = 0; i < tBoxes.length; i++) {
+              const b = tBoxes[i];
+              if (b.id === uId || b.id === vId) continue;
+              if (hi > b.left - OBS_PAD && lo < b.right + OBS_PAD) {
+                blocked.push([b.top - OBS_PAD, b.bottom + OBS_PAD]);
+              }
+            }
+            if (!blocked.length) return [[-1e6, 1e6]];
+            blocked.sort((a, b) => a[0] - b[0]);
+            const merged = [blocked[0].slice()];
+            for (let i = 1; i < blocked.length; i++) {
+              const cur = blocked[i];
+              const prev = merged[merged.length - 1];
+              if (cur[0] <= prev[1] + 4) {
+                prev[1] = Math.max(prev[1], cur[1]);
+              } else {
+                merged.push(cur.slice());
+              }
+            }
+            const open = [];
+            open.push([merged[0][0] - 240, merged[0][0]]);
+            for (let i = 0; i < merged.length - 1; i++) {
+              if (merged[i + 1][0] - merged[i][1] >= 4) {
+                open.push([merged[i][1], merged[i + 1][0]]);
+              }
+            }
+            open.push([merged[merged.length - 1][1], merged[merged.length - 1][1] + 240]);
+            return open;
+          }
+
+          function pickFreeY(preferred, minY, maxY, x1, x2, checkObs, extraCheck) {
+            const lo = Math.min(minY, maxY);
+            const hi = Math.max(minY, maxY);
+            if (hi < lo - 0.5) return null;
+            const center = clamp(preferred, lo, hi);
+            const seps = [8, 6, 4.5, MIN_SEG_SEP];
+            for (let si = 0; si < seps.length; si++) {
+              const sep = seps[si];
+              const stride = Math.max(1.5, sep * 0.5);
+              const maxK = Math.ceil((hi - lo) / stride) + 2;
+              for (let k = 0; k <= maxK; k++) {
+                const deltas = k === 0 ? [0] : [k * stride, -k * stride];
+                for (let di = 0; di < deltas.length; di++) {
+                  const cand = round2(center + deltas[di]);
+                  if (cand < lo - 0.1 || cand > hi + 0.1) continue;
+                  if (checkObs && hBlocked(cand, x1, x2)) continue;
+                  if (hasSegOverlap(tOccH, cand, x1, x2, sep - 0.15, edgeId)) continue;
+                  if (extraCheck && !extraCheck(cand)) continue;
+                  return cand;
+                }
+              }
+            }
+            return null;
+          }
+
+          function pickFreeX(preferred, minX, maxX, y1, y2, checkObs, extraCheck) {
+            const lo = Math.min(minX, maxX);
+            const hi = Math.max(minX, maxX);
+            if (hi < lo - 0.5) return null;
+            const center = clamp(preferred, lo, hi);
+            const seps = [8, 6, 4.5, MIN_SEG_SEP];
+            for (let si = 0; si < seps.length; si++) {
+              const sep = seps[si];
+              const stride = Math.max(1.5, sep * 0.5);
+              const maxK = Math.ceil((hi - lo) / stride) + 2;
+              for (let k = 0; k <= maxK; k++) {
+                const deltas = k === 0 ? [0] : [k * stride, -k * stride];
+                for (let di = 0; di < deltas.length; di++) {
+                  const cand = round2(center + deltas[di]);
+                  if (cand < lo - 0.1 || cand > hi + 0.1) continue;
+                  if (checkObs && vBlocked(cand, y1, y2)) continue;
+                  if (hasSegOverlap(tOccV, cand, y1, y2, sep - 0.15, edgeId)) continue;
+                  if (extraCheck && !extraCheck(cand)) continue;
+                  return cand;
+                }
+              }
+            }
+            return null;
+          }
+
+          // Step 0: Straight 0-bend segment when aligned and completely clear
+          if (Math.abs(sx - tx) < 0.8 && sDir === -tDir && sDir * (ty - sy) > 2) {
+            const midX = round2((sx + tx) * 0.5);
+            if (!vBlocked(midX, sy, ty) && !hasSegOverlap(tOccV, midX, sy, ty, MIN_SEG_SEP, edgeId)) {
+              return [];
+            }
+          }
+
+          // Compute unobstructed vertical reach out of source & target ports
+          const farS = sy + sDir * 2400;
+          const farT = ty + tDir * 2400;
+          const reachS = computeReachY(sx, sy, sDir, sDir > 0 ? Math.min(farS, ty - MIN_STUB) : Math.max(farS, ty + MIN_STUB));
+          const reachT = computeReachY(tx, ty, tDir, tDir > 0 ? Math.min(farT, sy - MIN_STUB) : Math.max(farT, sy + MIN_STUB));
+
+          // Step 1: Clean 2-bend Z-route when source and target share a mutually unobstructed vertical band
+          if (sDir === -tDir && sDir * (ty - sy) >= 2 * MIN_STUB) {
+            const ovLo = sDir > 0 ? Math.max(sy + MIN_STUB, reachT) : Math.max(ty + MIN_STUB, reachS);
+            const ovHi = sDir > 0 ? Math.min(ty - MIN_STUB, reachS) : Math.min(sy - MIN_STUB, reachT);
+            if (ovHi >= ovLo) {
+              const span = ovHi - ovLo;
+              const prefY = ovLo + span * clamp(prefBias, 0.08, 0.92);
+              const midY = pickFreeY(prefY, ovLo, ovHi, sx, tx, true, (candY) => (
+                !hasSegOverlap(tOccV, sx, sy, candY, MIN_SEG_SEP, edgeId) &&
+                !hasSegOverlap(tOccV, tx, candY, ty, MIN_SEG_SEP, edgeId)
+              ));
+              if (midY !== null) {
+                return [[sx, midY], [tx, midY]];
+              }
+            }
+          }
+
+          // Local exit/entry gap bounds right outside source and target.
+          // Adapt stub clearance gracefully in narrow inter-row gaps (e.g. 32px domain spacing)
+          // while staying strictly outside card borders.
+          const rawGapS = Math.abs(reachS - sy);
+          const rawGapT = Math.abs(reachT - ty);
+          const stubS = rawGapS < 44 ? Math.max(6, Math.min(MIN_STUB, rawGapS * 0.22)) : MIN_STUB;
+          const stubT = rawGapT < 44 ? Math.max(6, Math.min(MIN_STUB, rawGapT * 0.22)) : MIN_STUB;
+
+          const localSLo = sDir > 0 ? sy + stubS : Math.min(sy - stubS, reachS);
+          const localSHi = sDir > 0 ? Math.max(sy + stubS, reachS) : sy - stubS;
+          const localTLo = tDir > 0 ? ty + stubT : Math.min(ty - stubT, reachT);
+          const localTHi = tDir > 0 ? Math.max(ty + stubT, reachT) : ty - stubT;
+
+          const sGapPref = sDir > 0
+            ? Math.min(localSHi, localSLo + Math.min(localSHi - localSLo, 36) * 0.35)
+            : Math.max(localSLo, localSHi - Math.min(localSHi - localSLo, 36) * 0.35);
+          const tGapPref = tDir > 0
+            ? Math.min(localTHi, localTLo + (localTHi - localTLo) * clamp(prefBias, 0.12, 0.88))
+            : Math.max(localTLo, localTHi - (localTHi - localTLo) * clamp(1 - prefBias, 0.12, 0.88));
+
+          // Step 2: 4-bend single-gutter detour: (sx, sy) -> (sx, y1) -> (gx, y1) -> (gx, y2) -> (tx, y2) -> (tx, ty)
+          const gutters = findOpenIntervalsX(sGapPref, tGapPref);
+          const midXTarget = (sx + tx) * 0.5;
+          gutters.sort((a, b) => {
+            const ca = clamp(midXTarget, a[0], a[1]);
+            const cb = clamp(midXTarget, b[0], b[1]);
+            return (Math.abs(sx - ca) + Math.abs(tx - ca)) - (Math.abs(sx - cb) + Math.abs(tx - cb));
+          });
+
+          for (let gi = 0; gi < gutters.length; gi++) {
+            const [gLo, gHi] = gutters[gi];
+            const gPref = clamp(midXTarget, gLo + 4, gHi - 4);
+            // Try picking a free gx inside this gutter, then matching y1 & y2
+            const gx = pickFreeX(gPref, gLo + 2, gHi - 2, sGapPref, tGapPref, true, null);
+            if (gx === null) continue;
+            const y1 = pickFreeY(sGapPref, localSLo, localSHi, sx, gx, true, (candY) => (
+              !hasSegOverlap(tOccV, sx, sy, candY, MIN_SEG_SEP, edgeId)
+            ));
+            if (y1 === null) continue;
+            const y2 = pickFreeY(tGapPref, localTLo, localTHi, gx, tx, true, (candY) => (
+              !hasSegOverlap(tOccV, tx, candY, ty, MIN_SEG_SEP, edgeId) &&
+              !vBlocked(gx, y1, candY) &&
+              !hasSegOverlap(tOccV, gx, y1, candY, MIN_SEG_SEP, edgeId)
+            ));
+            if (y2 !== null) {
+              return [[sx, y1], [gx, y1], [gx, y2], [tx, y2]];
+            }
+          }
+
+          // Step 3: 6-bend dual-gutter + open horizontal bus channel
+          const busXLo = Math.min(sx, tx) - 40;
+          const busXHi = Math.max(sx, tx) + 40;
+          const busChannels = findOpenIntervalsY(busXLo, busXHi);
+          const midYTarget = (sy + ty) * 0.5;
+          busChannels.sort((a, b) => {
+            const ca = clamp(midYTarget, a[0], a[1]);
+            const cb = clamp(midYTarget, b[0], b[1]);
+            return Math.abs(ca - midYTarget) - Math.abs(cb - midYTarget);
+          });
+
+          for (let bi = 0; bi < Math.min(busChannels.length, 4); bi++) {
+            const [bLo, bHi] = busChannels[bi];
+            const bSpan = bHi - bLo;
+            if (bSpan < 4) continue;
+            const bPref = bLo + clamp(bSpan, 0, 260) * clamp(prefBias, 0.1, 0.9);
+            const g1List = findOpenIntervalsX(sGapPref, bPref).sort((a, b) => {
+              const ca = clamp(sx, a[0], a[1]);
+              const cb = clamp(sx, b[0], b[1]);
+              return Math.abs(ca - sx) - Math.abs(cb - sx);
+            });
+            const g2List = findOpenIntervalsX(bPref, tGapPref).sort((a, b) => {
+              const ca = clamp(tx, a[0], a[1]);
+              const cb = clamp(tx, b[0], b[1]);
+              return Math.abs(ca - tx) - Math.abs(cb - tx);
+            });
+            for (let i1 = 0; i1 < Math.min(g1List.length, 6); i1++) {
+              const gx1 = pickFreeX(clamp(sx, g1List[i1][0] + 2, g1List[i1][1] - 2), g1List[i1][0] + 2, g1List[i1][1] - 2, sGapPref, bPref, true, null);
+              if (gx1 === null) continue;
+              const y1 = pickFreeY(sGapPref, localSLo, localSHi, sx, gx1, true, (cy) => (
+                !hasSegOverlap(tOccV, sx, sy, cy, MIN_SEG_SEP, edgeId)
+              ));
+              if (y1 === null) continue;
+              for (let i2 = 0; i2 < Math.min(g2List.length, 6); i2++) {
+                const gx2 = pickFreeX(clamp(tx, g2List[i2][0] + 2, g2List[i2][1] - 2), g2List[i2][0] + 2, g2List[i2][1] - 2, bPref, tGapPref, true, null);
+                if (gx2 === null) continue;
+                const y2 = pickFreeY(tGapPref, localTLo, localTHi, gx2, tx, true, (cy) => (
+                  !hasSegOverlap(tOccV, tx, cy, ty, MIN_SEG_SEP, edgeId)
+                ));
+                if (y2 === null) continue;
+                const yBus = pickFreeY(bPref, bLo + 2, bHi - 2, gx1, gx2, true, (cy) => (
+                  !vBlocked(gx1, y1, cy) && !hasSegOverlap(tOccV, gx1, y1, cy, MIN_SEG_SEP, edgeId) &&
+                  !vBlocked(gx2, cy, y2) && !hasSegOverlap(tOccV, gx2, cy, y2, MIN_SEG_SEP, edgeId)
+                ));
+                if (yBus !== null) {
+                  return [[sx, y1], [gx1, y1], [gx1, yBus], [gx2, yBus], [gx2, y2], [tx, y2]];
+                }
+              }
+            }
+          }
+
+          // Step 4: Guaranteed zero-overlap fallback (relaxes obstacle check only, strictly enforces zero segment overlap)
+          const fbLo = Math.min(sy, ty) - 240;
+          const fbHi = Math.max(sy, ty) + 240;
+          const fbY = pickFreeY(midYTarget, fbLo, fbHi, sx, tx, false, (cy) => (
+            !hasSegOverlap(tOccV, sx, sy, cy, MIN_SEG_SEP, edgeId) &&
+            !hasSegOverlap(tOccV, tx, cy, ty, MIN_SEG_SEP, edgeId)
+          ));
+          if (fbY !== null) {
+            return [[sx, fbY], [tx, fbY]];
+          }
+
+          // Ultimate 4-bend fallback with free gutter X if stubs themselves collided
+          const fbY1 = pickFreeY(sy + sDir * MIN_STUB, sy + sDir * MIN_STUB - 120, sy + sDir * MIN_STUB + 120, sx - 240, sx + 240, false, null) || round2(sy + sDir * MIN_STUB);
+          const fbY2 = pickFreeY(ty + tDir * MIN_STUB, ty + tDir * MIN_STUB - 120, ty + tDir * MIN_STUB + 120, tx - 240, tx + 240, false, null) || round2(ty + tDir * MIN_STUB);
+          const fbX = pickFreeX(midXTarget, Math.min(sx, tx) - 280, Math.max(sx, tx) + 280, fbY1, fbY2, false, null) || round2(midXTarget);
+          return [[sx, fbY1], [fbX, fbY1], [fbX, fbY2], [tx, fbY2]];
+        }
+
+        // Precompute transposed boxes once for horizontal-primary edges
+        const transposedBoxes = boxes.map((b) => ({
+          id: b.id,
+          left: b.top,
+          right: b.bottom,
+          top: b.left,
+          bottom: b.right,
+        }));
+
+        function normalizeControlPoints(start, cps, end) {
+          const raw = [start, ...(cps || []), end];
+          const clean = [];
+          for (let i = 0; i < raw.length; i++) {
+            const p = [round2(raw[i][0]), round2(raw[i][1])];
+            if (!clean.length) {
+              clean.push(p);
+              continue;
+            }
+            const prev = clean[clean.length - 1];
+            if (Math.abs(p[0] - prev[0]) < 0.05 && Math.abs(p[1] - prev[1]) < 0.05) {
+              continue;
+            }
+            clean.push(p);
+          }
+          // Drop strictly collinear intermediate points
+          const simplified = [clean[0]];
+          for (let i = 1; i < clean.length - 1; i++) {
+            const a = simplified[simplified.length - 1];
+            const b = clean[i];
+            const c = clean[i + 1];
+            const sameX = Math.abs(a[0] - b[0]) < 0.05 && Math.abs(b[0] - c[0]) < 0.05;
+            const sameY = Math.abs(a[1] - b[1]) < 0.05 && Math.abs(b[1] - c[1]) < 0.05;
+            if (!sameX && !sameY) {
+              simplified.push(b);
+            }
+          }
+          if (clean.length > 1) simplified.push(clean[clean.length - 1]);
+          return {
+            fullPath: simplified,
+            controlPoints: simplified.slice(1, -1),
+          };
+        }
+
+        // Sort edges so short local fan-outs claim tight corridors first, and long fan-ins nest cleanly
+        const kindPriority = (k) => (k === 'ingress-switch' ? 0 : (k === 'ingress-route' ? 1 : 2));
+        edgeMeta.sort((a, b) => {
+          const kpA = kindPriority(a.edge.data && a.edge.data.kind);
+          const kpB = kindPriority(b.edge.data && b.edge.data.kind);
+          if (kpA !== kpB) return kpA - kpB;
+          const distA = Math.abs(a.sx - a.tx) + Math.abs(a.sy - a.ty);
+          const distB = Math.abs(b.sx - b.tx) + Math.abs(b.sy - b.ty);
+          if (Math.abs(distA - distB) > 1) return distA - distB;
+          return String(a.edge.id).localeCompare(String(b.edge.id));
+        });
+
+        const edgeRoutes = {};
+        for (let i = 0; i < edgeMeta.length; i++) {
+          const m = edgeMeta[i];
+          const isVertical = m.sSide === 'top' || m.sSide === 'bottom';
+          // Distribute preferred track bias cleanly across fan-in / fan-out rank
+          const rankDenom = Math.max(m.tCount, m.sCount, 1);
+          const rankIdx = m.tCount >= m.sCount ? m.tRank : m.sRank;
+          const prefBias = rankDenom === 1 ? 0.5 : (0.12 + 0.76 * (rankIdx / (rankDenom - 1)));
+
+          let rawCps;
+          if (isVertical) {
+            const sDir = m.sSide === 'bottom' ? 1 : -1;
+            const tDir = m.tSide === 'bottom' ? 1 : -1;
+            rawCps = routeVerticalPrimary(
+              m.sx, m.sy, sDir,
+              m.tx, m.ty, tDir,
+              m.u.id, m.v.id, m.edge.id,
+              prefBias,
+              boxes, occH, occV
+            );
+          } else {
+            const sDir = m.sSide === 'right' ? 1 : -1;
+            const tDir = m.tSide === 'right' ? 1 : -1;
+            const transposedCps = routeVerticalPrimary(
+              m.sy, m.sx, sDir,
+              m.ty, m.tx, tDir,
+              m.u.id, m.v.id, m.edge.id,
+              prefBias,
+              transposedBoxes, occV, occH
+            );
+            rawCps = transposedCps.map((p) => [p[1], p[0]]);
+          }
+
+          const { fullPath, controlPoints } = normalizeControlPoints([m.sx, m.sy], rawCps, [m.tx, m.ty]);
+          registerPathSegments(fullPath, m.edge.id);
+
+          edgeRoutes[m.edge.id] = {
+            sourcePort: m.sPortKey,
+            targetPort: m.tPortKey,
+            controlPoints,
+            fullPath,
+          };
+        }
+
+        return { nodePorts, edgeRoutes };
+      }
+
       function buildPreparedData(payload) {
         const raw = payload.data || { nodes: [], edges: [], combos: [] };
         const useCombos = layoutMode === 'zones';
@@ -824,8 +1485,10 @@
           if (edgeType === 'quadratic') {
             style.curveOffset = typeof ed.curveOffset === 'number' ? ed.curveOffset : (isIngress ? -18 : 26);
           } else {
-            style.router = { type: 'orth' };
-            style.radius = 10;
+            // For layouts whose final coordinates are computed after render (`network`/`dagre`),
+            // start with clean orthogonal routing; `afterlayout` replaces this with exact non-overlapping lanes.
+            style.router = { type: 'orth', padding: 14 };
+            style.radius = 8;
           }
 
           return {
@@ -837,6 +1500,29 @@
             style,
           };
         });
+
+        // In deterministic `zones` mode, node coordinates are known immediately — compute
+        // distinct perimeter ports and non-overlapping orthogonal lanes up front.
+        if (edgeMode === 'polyline' && layoutMode === 'zones') {
+          const routed = computePolylineRoutes(nodes, edges, 'zones');
+          for (const n of nodes) {
+            const ports = routed.nodePorts[n.id];
+            if (ports && ports.length) {
+              n.style.port = true;
+              n.style.ports = ports;
+            }
+          }
+          for (const e of edges) {
+            const r = routed.edgeRoutes[e.id];
+            if (r) {
+              e.style.sourcePort = r.sourcePort;
+              e.style.targetPort = r.targetPort;
+              e.style.controlPoints = r.controlPoints;
+              e.style.router = false;
+              e.style.radius = 8;
+            }
+          }
+        }
 
         return { nodes, edges, combos };
       }
@@ -1206,9 +1892,76 @@
         return undefined;
       }
 
+      async function rerouteLivePolylines(expectedSeq) {
+        if (expectedSeq !== graphBuildSeq || !graph || edgeMode !== 'polyline') return;
+        try {
+          const curNodes = graph.getNodeData() || [];
+          const curEdges = graph.getEdgeData() || [];
+          if (!curNodes.length || !curEdges.length) return;
+
+          const positionedNodes = curNodes.map((n) => {
+            let x = n.style && typeof n.style.x === 'number' ? n.style.x : 0;
+            let y = n.style && typeof n.style.y === 'number' ? n.style.y : 0;
+            try {
+              const pos = graph.getElementPosition(n.id);
+              if (Array.isArray(pos) && isFinite(pos[0]) && isFinite(pos[1])) {
+                x = pos[0];
+                y = pos[1];
+              }
+            } catch (_) {}
+            return {
+              id: n.id,
+              combo: n.combo || '',
+              data: n.data || {},
+              style: {
+                x,
+                y,
+                size: (n.style && Array.isArray(n.style.size)) ? n.style.size : nodeSizeForKind(n.data && n.data.kind),
+              },
+            };
+          });
+
+          const routed = computePolylineRoutes(positionedNodes, curEdges, layoutMode);
+          if (expectedSeq !== graphBuildSeq || !graph) return;
+
+          graph.updateNodeData((nodesList) =>
+            nodesList.map((n) => ({
+              id: n.id,
+              style: Object.assign({}, n.style, {
+                port: true,
+                ports: routed.nodePorts[n.id] || [],
+              }),
+            }))
+          );
+          graph.updateEdgeData((edgesList) =>
+            edgesList.map((e) => {
+              const r = routed.edgeRoutes[e.id];
+              if (!r) return e;
+              return {
+                id: e.id,
+                style: Object.assign({}, e.style, {
+                  sourcePort: r.sourcePort,
+                  targetPort: r.targetPort,
+                  controlPoints: r.controlPoints,
+                  router: false,
+                  radius: 8,
+                }),
+              };
+            })
+          );
+
+          await graph.draw();
+          if (expectedSeq !== graphBuildSeq || !graph) return;
+          await applySelectionAndSearch(false);
+        } catch (err) {
+          console.warn('rerouteLivePolylines error:', err);
+        }
+      }
+
       async function rebuildGraph(shouldFit) {
         if (!g6Loaded || !window.G6 || !currentPayload) return;
         registerK8sCardNode();
+        const buildSeq = ++graphBuildSeq;
 
         const container = document.getElementById('mount');
         const width = Math.max(container.clientWidth || window.innerWidth || 800, 100);
@@ -1288,6 +2041,7 @@
                 endArrowFill: '#f59e0b',
                 shadowColor: 'rgba(245, 158, 11, 0.55)',
                 shadowBlur: 8,
+                zIndex: 10,
               },
               'search-dim': {
                 stroke: '#1e293b',
@@ -1378,13 +2132,49 @@
           }
         });
 
+        // Keep dragged edges cleanly orthogonal mid-drag and re-compute non-overlapping lanes on drop
+        graph.on('node:dragstart', (evt) => {
+          if (edgeMode !== 'polyline' || !graph) return;
+          const draggedId = evt && evt.target && evt.target.id;
+          if (!draggedId) return;
+          try {
+            const curEdges = graph.getEdgeData() || [];
+            const affected = curEdges.filter((e) => e.source === draggedId || e.target === draggedId);
+            if (affected.length) {
+              graph.updateEdgeData(affected.map((e) => ({
+                id: e.id,
+                style: Object.assign({}, e.style, {
+                  controlPoints: [],
+                  router: { type: 'orth', padding: 12 },
+                }),
+              })));
+            }
+          } catch (_) {}
+        });
+
+        graph.on('node:dragend', () => {
+          if (edgeMode === 'polyline') {
+            rerouteLivePolylines(buildSeq);
+          }
+        });
+
         graph.on('viewport:transform', updateZoomReadout);
         let needsPostLayoutFit = shouldFit;
+        let isRendering = true;
+        let layoutSettled = false;
+
         graph.on('afterlayout', () => {
-          if (needsPostLayoutFit && graph) {
-            needsPostLayoutFit = false;
-            graph.fitView({ padding: [74, 48, 74, 48] }).then(updateZoomReadout).catch(() => {});
-          }
+          layoutSettled = true;
+          if (isRendering || buildSeq !== graphBuildSeq || !graph) return;
+          const afterReroute = edgeMode === 'polyline'
+            ? rerouteLivePolylines(buildSeq)
+            : Promise.resolve();
+          afterReroute.then(() => {
+            if (needsPostLayoutFit && buildSeq === graphBuildSeq && graph) {
+              needsPostLayoutFit = false;
+              graph.fitView({ padding: [74, 48, 74, 48] }).then(updateZoomReadout).catch(() => {});
+            }
+          });
         });
         graph.on('afterrender', () => {
           updateZoomReadout();
@@ -1392,7 +2182,16 @@
         });
 
         await graph.render();
-        if (shouldFit) {
+        isRendering = false;
+        if (buildSeq !== graphBuildSeq || !graph) return;
+
+        if (edgeMode === 'polyline' && layoutMode !== 'zones' && layoutSettled) {
+          await rerouteLivePolylines(buildSeq);
+          if (buildSeq !== graphBuildSeq || !graph) return;
+        }
+
+        if (shouldFit && (layoutMode === 'zones' || layoutSettled)) {
+          needsPostLayoutFit = false;
           try { await graph.fitView({ padding: [74, 48, 74, 48] }); } catch (_) {}
         }
         updateZoomReadout();
