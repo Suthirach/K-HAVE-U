@@ -14,7 +14,7 @@ permissions:
 jobs:
   macos:
     name: Mac (Apple Silicon + Intel) -> K9s-Studio-Mac.dmg
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
