@@ -176,18 +176,6 @@ pub fn build_g6_topology(
 
     let has_storage_nodes = !caches.is_empty() || !external_caches.is_empty() || !workers.is_empty();
     let mut combos = Vec::with_capacity(3);
-    if !apis.is_empty() {
-        combos.push(G6Combo {
-            id: "combo-apps".into(),
-            data: G6ComboData {
-                is_combo: true,
-                label: format!("APPLICATION SERVERS — {} ({})", snap.namespace, apis.len()),
-                description: format!("{} API/service deployments in {}", apis.len(), snap.namespace),
-                fill: "rgba(99, 102, 241, 0.06)".into(),
-                stroke: "rgba(129, 140, 248, 0.42)".into(),
-            },
-        });
-    }
     combos.push(G6Combo {
         id: "combo-network".into(),
         data: G6ComboData {
@@ -202,6 +190,18 @@ pub fn build_g6_topology(
             stroke: "rgba(56, 189, 248, 0.40)".into(),
         },
     });
+    if !apis.is_empty() {
+        combos.push(G6Combo {
+            id: "combo-apps".into(),
+            data: G6ComboData {
+                is_combo: true,
+                label: format!("APPLICATION SERVERS — {} ({})", snap.namespace, apis.len()),
+                description: format!("{} API/service deployments in {}", apis.len(), snap.namespace),
+                fill: "rgba(99, 102, 241, 0.06)".into(),
+                stroke: "rgba(129, 140, 248, 0.42)".into(),
+            },
+        });
+    }
     if has_storage_nodes {
         combos.push(G6Combo {
             id: "combo-storage".into(),
@@ -222,7 +222,7 @@ pub fn build_g6_topology(
     let mut nodes: Vec<G6Node> = Vec::new();
     let mut node_labels: HashMap<String, String> = HashMap::new();
 
-    // Card dimensions & combo padding used for exact zero-overlap bounding-box layout:
+    // Card dimensions & combo padding used for exact zero-overlap Left -> Middle -> Right layout:
     // - API / Cache / Worker card: 224 x 68 (half: 112 x 34)
     // - Switch card:               196 x 68 (half: 98 x 34)
     // - Domain pill:               244 x 46 (half: 122 x 23)
@@ -231,74 +231,31 @@ pub fn build_g6_topology(
     const CARD_HALF_H: f32 = 34.0;
     const SWITCH_HALF_W: f32 = 98.0;
     const DOMAIN_HALF_W: f32 = 122.0;
-    const COMBO_PAD_TOP: f32 = 68.0;
+    const DOMAIN_HALF_H: f32 = 23.0;
     const COMBO_PAD_SIDE: f32 = 36.0;
-    const COMBO_PAD_BOT: f32 = 36.0;
-    const ZONE_V_GAP: f32 = 220.0;
-    const ZONE_H_GAP: f32 = 190.0;
+    const ZONE_H_GAP: f32 = 200.0;
+    const ZONE_TOP_Y: f32 = 120.0;
 
-    // 1. Application Servers (Top zone, spacious 284x126 pitch -> 60px H-gap, 58px V-gap)
-    let api_cols = if apis.len() <= 4 {
-        apis.len().max(1)
-    } else if apis.len() <= 10 {
-        5
-    } else {
-        6
-    };
-    let api_col_pitch = 284.0_f32;
-    let api_row_pitch = 126.0_f32;
-    let api_rows = apis.len().div_ceil(api_cols).max(1);
-    let api_start_x = 156.0_f32;
-    let api_start_y = 120.0_f32;
-
-    for (idx, svc) in apis.iter().enumerate() {
-        let r = idx / api_cols;
-        let c = idx % api_cols;
-        let id = service_node_id(&svc.name);
-        node_labels.insert(id.clone(), svc.name.clone());
-        nodes.push(G6Node {
-            id,
-            combo: "combo-apps".into(),
-            x: api_start_x + c as f32 * api_col_pitch,
-            y: api_start_y + r as f32 * api_row_pitch,
-            data: G6NodeData {
-                kind: "api".into(),
-                label: svc.name.clone(),
-                full_name: svc.name.clone(),
-                service_name: Some(svc.name.clone()),
-                role_label: svc.role.label().into(),
-                health: health_key(svc.health).into(),
-                pod_badge: Some(format!("{}/{} Pods", svc.ready_replicas, svc.desired_replicas)),
-                badge: None,
-                ports: Some(svc.ports.clone()),
-                hosts: svc.hosts.clone(),
-                connects_to: svc.connects_to.clone(),
-                summary: svc.summary.clone(),
-                fan_in: dep_fan_in.get(&svc.name).copied().unwrap_or(0),
-            },
-        });
-    }
-
-    // Exact outer bottom of `combo-apps` + generous vertical channel + `combo-network/storage` top pad
-    let app_last_row_y = api_start_y + (api_rows.saturating_sub(1) as f32) * api_row_pitch;
-    let app_combo_bottom = app_last_row_y + CARD_HALF_H + COMBO_PAD_BOT;
-    let bottom_zone_y = app_combo_bottom + ZONE_V_GAP + COMBO_PAD_TOP + CARD_HALF_H;
-
-    // 2. Network / Ingress Switch (Bottom-left zone — spread across 2 columns if >4 ingresses)
+    // 1. Left Zone: Network / Ingress Switch (`Nginx Ingress` on left, domain pills in columns to its right)
     let ingress_count = snap.ingresses.len();
     let domain_cols = if ingress_count > 4 { 2usize } else { 1usize };
     let domain_rows = ingress_count.div_ceil(domain_cols).max(1);
     let domain_col_pitch = 290.0_f32;
     let domain_row_pitch = 78.0_f32;
 
+    // Align top of domain pills with top of API/Storage cards so all 3 combo headers line up horizontally.
+    let dom_start_y = if domain_rows <= 1 {
+        ZONE_TOP_Y
+    } else {
+        ZONE_TOP_Y - (CARD_HALF_H - DOMAIN_HALF_H)
+    };
     let switch_x = 148.0_f32;
     let switch_id = "node-ingress-switch".to_string();
-    let switch_y = bottom_zone_y
-        + if domain_rows > 1 {
-            ((domain_rows - 1) as f32 * domain_row_pitch) * 0.5
-        } else {
-            0.0
-        };
+    let switch_y = if domain_rows <= 1 {
+        ZONE_TOP_Y
+    } else {
+        dom_start_y + ((domain_rows - 1) as f32 * domain_row_pitch) * 0.5
+    };
     node_labels.insert(switch_id.clone(), "Nginx Ingress".into());
     nodes.push(G6Node {
         id: switch_id.clone(),
@@ -340,7 +297,7 @@ pub fn build_g6_topology(
         let row = idx % domain_rows;
         let dom_id = format!("domain:{idx}:{}", ing.host);
         let dom_x = dom_start_x + col as f32 * domain_col_pitch;
-        let dom_y = bottom_zone_y + row as f32 * domain_row_pitch;
+        let dom_y = dom_start_y + row as f32 * domain_row_pitch;
         node_labels.insert(dom_id.clone(), ing.host.clone());
 
         nodes.push(G6Node {
@@ -429,7 +386,7 @@ pub fn build_g6_topology(
         }
     }
 
-    // Exact outer right of `combo-network` + generous horizontal gap -> start of `combo-storage`
+    // Exact outer right of `combo-network` + generous horizontal corridor -> Middle zone
     let net_rightmost_edge = if ingress_count == 0 {
         switch_x + SWITCH_HALF_W
     } else {
@@ -437,10 +394,67 @@ pub fn build_g6_topology(
         dom_start_x + last_dom_col as f32 * domain_col_pitch + DOMAIN_HALF_W
     };
     let net_combo_right = net_rightmost_edge + COMBO_PAD_SIDE;
+    let mut next_zone_left = net_combo_right + ZONE_H_GAP;
 
-    // 3. Storage (Caches / Redis) & Workers Cluster (Bottom-right zone — guaranteed non-overlapping!)
-    let storage_start_x = net_combo_right + ZONE_H_GAP + COMBO_PAD_SIDE + CARD_HALF_W;
-    let storage_cols = 3usize;
+    // 2. Middle Zone: Application Servers (API service cards grid, spacious 284x126 pitch -> 60px H-gap, 58px V-gap)
+    let api_col_pitch = 284.0_f32;
+    let api_row_pitch = 126.0_f32;
+    if !apis.is_empty() {
+        let api_cols = if apis.len() <= 1 {
+            1
+        } else if apis.len() <= 4 {
+            2
+        } else if apis.len() <= 12 {
+            3
+        } else {
+            4
+        };
+        let api_start_x = next_zone_left + COMBO_PAD_SIDE + CARD_HALF_W;
+        let api_start_y = ZONE_TOP_Y;
+
+        for (idx, svc) in apis.iter().enumerate() {
+            let r = idx / api_cols;
+            let c = idx % api_cols;
+            let id = service_node_id(&svc.name);
+            node_labels.insert(id.clone(), svc.name.clone());
+            nodes.push(G6Node {
+                id,
+                combo: "combo-apps".into(),
+                x: api_start_x + c as f32 * api_col_pitch,
+                y: api_start_y + r as f32 * api_row_pitch,
+                data: G6NodeData {
+                    kind: "api".into(),
+                    label: svc.name.clone(),
+                    full_name: svc.name.clone(),
+                    service_name: Some(svc.name.clone()),
+                    role_label: svc.role.label().into(),
+                    health: health_key(svc.health).into(),
+                    pod_badge: Some(format!("{}/{} Pods", svc.ready_replicas, svc.desired_replicas)),
+                    badge: None,
+                    ports: Some(svc.ports.clone()),
+                    hosts: svc.hosts.clone(),
+                    connects_to: svc.connects_to.clone(),
+                    summary: svc.summary.clone(),
+                    fan_in: dep_fan_in.get(&svc.name).copied().unwrap_or(0),
+                },
+            });
+        }
+
+        let actual_api_cols = apis.len().min(api_cols);
+        let apps_rightmost_edge =
+            api_start_x + (actual_api_cols - 1) as f32 * api_col_pitch + CARD_HALF_W;
+        let apps_combo_right = apps_rightmost_edge + COMBO_PAD_SIDE;
+        next_zone_left = apps_combo_right + ZONE_H_GAP;
+    }
+
+    // 3. Right Zone: Storage (Caches / Redis at top) & Workers Cluster (Workers grid below)
+    let storage_start_x = next_zone_left + COMBO_PAD_SIDE + CARD_HALF_W;
+    let total_caches = caches.len() + external_caches.len();
+    let storage_cols = if total_caches <= 2 && workers.len() <= 6 {
+        2usize
+    } else {
+        3usize
+    };
     let storage_col_pitch = 284.0_f32;
     let storage_row_pitch = 126.0_f32;
 
@@ -454,7 +468,7 @@ pub fn build_g6_topology(
             id,
             combo: "combo-storage".into(),
             x: storage_start_x + c as f32 * storage_col_pitch,
-            y: bottom_zone_y + r as f32 * storage_row_pitch,
+            y: ZONE_TOP_Y + r as f32 * storage_row_pitch,
             data: G6NodeData {
                 kind: "cache".into(),
                 label: svc.name.clone(),
@@ -483,7 +497,7 @@ pub fn build_g6_topology(
             id,
             combo: "combo-storage".into(),
             x: storage_start_x + c as f32 * storage_col_pitch,
-            y: bottom_zone_y + r as f32 * storage_row_pitch,
+            y: ZONE_TOP_Y + r as f32 * storage_row_pitch,
             data: G6NodeData {
                 kind: "cache".into(),
                 label: ext_name.clone(),
@@ -519,7 +533,7 @@ pub fn build_g6_topology(
             id,
             combo: "combo-storage".into(),
             x: storage_start_x + c as f32 * storage_col_pitch,
-            y: bottom_zone_y + r as f32 * storage_row_pitch + worker_extra_y,
+            y: ZONE_TOP_Y + r as f32 * storage_row_pitch + worker_extra_y,
             data: G6NodeData {
                 kind: "worker".into(),
                 label: svc.name.clone(),
@@ -1057,11 +1071,58 @@ mod tests {
         let net_b = combo_bounds("combo-network");
         let store_b = combo_bounds("combo-storage");
 
-        // Top apps combo sits well above both bottom combos (>=180px gap)
-        assert!(net_b.1 - apps_b.3 >= 180.0, "apps/net vertical gap too small: {:?}", (apps_b, net_b));
-        assert!(store_b.1 - apps_b.3 >= 180.0, "apps/store vertical gap too small: {:?}", (apps_b, store_b));
-        // Network combo sits well left of storage combo (>=150px gap)
-        assert!(store_b.0 - net_b.2 >= 150.0, "net/store horizontal gap too small: {:?}", (net_b, store_b));
+        // Horizontal Left (Network) -> Middle (Apps) -> Right (Storage & Workers) ordering with >=180px gaps
+        assert!(
+            apps_b.0 - net_b.2 >= 180.0,
+            "network/apps horizontal gap too small: {:?}",
+            (net_b, apps_b)
+        );
+        assert!(
+            store_b.0 - apps_b.2 >= 180.0,
+            "apps/storage horizontal gap too small: {:?}",
+            (apps_b, store_b)
+        );
+        // All 3 zone headers align along the same top Y line
+        assert!(
+            (net_b.1 - apps_b.1).abs() < 1.0 && (apps_b.1 - store_b.1).abs() < 1.0,
+            "zone top borders should align horizontally: {:?}",
+            (net_b.1, apps_b.1, store_b.1)
+        );
+        // Verify Nginx Ingress sits strictly left of all domain pills inside combo-network
+        let switch_node = payload
+            .data
+            .nodes
+            .iter()
+            .find(|n| n.id == "node-ingress-switch")
+            .unwrap();
+        for dom in payload.data.nodes.iter().filter(|n| n.data.kind == "domain") {
+            assert!(
+                switch_node.x + 98.0 < dom.x - 122.0,
+                "switch should sit left of domain {}: {} vs {}",
+                dom.id,
+                switch_node.x,
+                dom.x
+            );
+        }
+        // Verify caches sit strictly above workers inside combo-storage
+        let max_cache_y = payload
+            .data
+            .nodes
+            .iter()
+            .filter(|n| n.data.kind == "cache")
+            .map(|n| n.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let min_worker_y = payload
+            .data
+            .nodes
+            .iter()
+            .filter(|n| n.data.kind == "worker")
+            .map(|n| n.y)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            min_worker_y - max_cache_y >= 120.0,
+            "caches should sit above workers in storage zone: cache_y={max_cache_y}, worker_y={min_worker_y}"
+        );
     }
 
     #[test]
@@ -1109,9 +1170,33 @@ mod tests {
 
         let payload = build_g6_topology(&snap, None);
         let combo_ids: Vec<&str> = payload.data.combos.iter().map(|c| c.id.as_str()).collect();
-        // Since no caches, external caches, or workers exist, combo-storage must be omitted
-        assert_eq!(combo_ids, vec!["combo-apps", "combo-network"]);
+        // Since no caches, external caches, or workers exist, combo-storage must be omitted (Left -> Middle order)
+        assert_eq!(combo_ids, vec!["combo-network", "combo-apps"]);
         assert!(payload.data.combos.iter().all(|c| c.id != "combo-storage"));
+    }
+
+    #[test]
+    fn embedded_html_defaults_to_zones_layout() {
+        assert!(
+            TOPOLOGY_G6_HTML.contains("const DEFAULT_LAYOUT_MODE = 'zones';"),
+            "DEFAULT_LAYOUT_MODE should be 'zones'"
+        );
+        assert!(
+            TOPOLOGY_G6_HTML.contains("let layoutMode = DEFAULT_LAYOUT_MODE;"),
+            "layoutMode must initialize to DEFAULT_LAYOUT_MODE ('zones')"
+        );
+        assert!(
+            TOPOLOGY_G6_HTML.contains("<button class=\"hud-btn active\" id=\"btn-layout-zones\""),
+            "Zones button must be active on startup"
+        );
+        assert!(
+            TOPOLOGY_G6_HTML.contains("<button class=\"hud-btn\" id=\"btn-layout-network\""),
+            "Network button must not be active on startup"
+        );
+        assert!(
+            TOPOLOGY_G6_HTML.contains("<button class=\"hud-btn\" id=\"btn-layout-dagre\""),
+            "Dagre button must not be active on startup"
+        );
     }
 
     #[test]

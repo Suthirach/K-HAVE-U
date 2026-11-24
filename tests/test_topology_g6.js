@@ -15,6 +15,10 @@ let scriptContent = scriptMatch[1];
 // Inject exports right before the closing of the IIFE: `})();`
 const injection = `
   globalThis.__TEST_EXPORTS__ = {
+    DEFAULT_LAYOUT_MODE,
+    getLayoutMode: () => layoutMode,
+    setLayoutMode,
+    resetView: () => window.__k9sTopology.resetView(),
     escapeHtml,
     truncate,
     formatPortBadge,
@@ -27,6 +31,7 @@ const injection = `
     renderTooltipContent,
     layoutConfigFor,
     computePolylineRoutes,
+    buildPreparedData,
     buildPreparedDataFor: (payload, nextLayoutMode, nextEdgeMode) => {
       const prevLayout = layoutMode;
       const prevEdge = edgeMode;
@@ -46,19 +51,50 @@ const iifeEnd = scriptContent.lastIndexOf('})();');
 assert(iifeEnd !== -1, 'Could not locate closing IIFE in script');
 scriptContent = scriptContent.slice(0, iifeEnd) + injection + scriptContent.slice(iifeEnd);
 
+const domElements = new Map();
+function makeMockElement(id) {
+  const classes = new Set();
+  if (id === 'btn-layout-zones' || id === 'btn-edge-curve') {
+    classes.add('active');
+  }
+  return {
+    id,
+    addEventListener: () => {},
+    classList: {
+      add: (...names) => names.forEach((n) => classes.add(n)),
+      remove: (...names) => names.forEach((n) => classes.delete(n)),
+      toggle: (name, force) => {
+        if (typeof force === 'boolean') {
+          if (force) classes.add(name);
+          else classes.delete(name);
+          return force;
+        }
+        if (classes.has(name)) {
+          classes.delete(name);
+          return false;
+        }
+        classes.add(name);
+        return true;
+      },
+      contains: (name) => classes.has(name),
+    },
+    style: {},
+    textContent: '',
+    value: '',
+    focus: () => {},
+    select: () => {},
+  };
+}
+
 const sandbox = {
   console,
   document: {
-    getElementById: (id) => ({
-      id,
-      addEventListener: () => {},
-      classList: { add: () => {}, remove: () => {}, contains: () => false },
-      style: {},
-      textContent: '',
-      value: '',
-      focus: () => {},
-      select: () => {},
-    }),
+    getElementById: (id) => {
+      if (!domElements.has(id)) {
+        domElements.set(id, makeMockElement(id));
+      }
+      return domElements.get(id);
+    },
     head: { appendChild: () => {} },
     createElement: () => ({ addEventListener: () => {} }),
   },
@@ -75,6 +111,10 @@ vm.createContext(sandbox);
 vm.runInContext(scriptContent, sandbox);
 
 const {
+  DEFAULT_LAYOUT_MODE,
+  getLayoutMode,
+  setLayoutMode,
+  resetView,
   escapeHtml,
   truncate,
   formatPortBadge,
@@ -84,15 +124,50 @@ const {
   renderTooltipContent,
   layoutConfigFor,
   computePolylineRoutes,
+  buildPreparedData,
   buildPreparedDataFor,
 } = sandbox.__TEST_EXPORTS__;
 
 console.log('--- RUNNING TOPOLOGY G6 VERIFICATION TEST SUITE ---');
 
 // ============================================================================
-// REQUIREMENT 1: Layout / No Overlap & Mode Configurations
+// REQUIREMENT 1: Layout / No Overlap & Mode Configurations (Zones Default)
 // ============================================================================
-console.log('\n[Requirement 1] Layout modes, configs, and node/combo separation:');
+console.log('\n[Requirement 1] Default zones layout, mode switching, and node/combo separation:');
+
+// 1.0 Default startup layout must be `zones`
+assert.strictEqual(DEFAULT_LAYOUT_MODE, 'zones', 'DEFAULT_LAYOUT_MODE must be "zones"');
+assert.strictEqual(getLayoutMode(), 'zones', 'Initial layoutMode on startup must be "zones"');
+assert(
+  html.includes('<button class="hud-btn active" id="btn-layout-zones"'),
+  'HTML must mark Zones button as active on startup'
+);
+assert(
+  html.includes('<button class="hud-btn" id="btn-layout-network"'),
+  'HTML must NOT mark Network button as active on startup'
+);
+assert(
+  html.includes('<button class="hud-btn" id="btn-layout-dagre"'),
+  'HTML must NOT mark Dagre button as active on startup'
+);
+console.log('  ✔ Default startup layout is "zones" with Zones toolbar button active');
+
+// 1.0b Switching to Network / Dagre and Reset back to Zones
+setLayoutMode('network');
+assert.strictEqual(getLayoutMode(), 'network', 'setLayoutMode("network") must switch to network');
+assert(domElements.get('btn-layout-network').classList.contains('active'), 'Network button should be active');
+assert(!domElements.get('btn-layout-zones').classList.contains('active'), 'Zones button should be inactive');
+
+setLayoutMode('dagre');
+assert.strictEqual(getLayoutMode(), 'dagre', 'setLayoutMode("dagre") must switch to dagre');
+assert(domElements.get('btn-layout-dagre').classList.contains('active'), 'Dagre button should be active');
+assert(!domElements.get('btn-layout-network').classList.contains('active'), 'Network button should be inactive');
+
+resetView();
+assert.strictEqual(getLayoutMode(), 'zones', 'resetView() must restore default "zones" layout');
+assert(domElements.get('btn-layout-zones').classList.contains('active'), 'Zones button should be active after reset');
+assert(!domElements.get('btn-layout-dagre').classList.contains('active'), 'Dagre button should be inactive after reset');
+console.log('  ✔ Switching to Network / Dagre and Reset back to Zones updates state and active buttons cleanly');
 
 // 1.1 Layout configurations
 const netLayout = layoutConfigFor('network');
@@ -398,33 +473,26 @@ console.log('  ✔ Dark-fade + complete label hiding verified on non-matching no
 // ============================================================================
 console.log('\n[Requirement 5] Non-overlapping polyline edges, port separation, and obstacle avoidance:');
 
-// Helper: build the full 42-node, 50-edge stress-test cluster matching Rust's deterministic zones coordinates
+// Helper: build the full 42-node, 50-edge stress-test cluster matching Rust's Left -> Middle -> Right zones coordinates
 function buildHeavyZonesPayload() {
   const nodes = [];
   const edges = [];
   let edgeId = 0;
 
-  // 24 APIs (4 rows x 6 cols, 284 x 126 pitch)
-  const apiCols = 6;
-  const apiStartX = 156;
-  const apiStartY = 120;
-  for (let i = 0; i < 24; i++) {
-    const r = Math.floor(i / apiCols);
-    const c = i % apiCols;
-    nodes.push({
-      id: `svc:api-${i}`,
-      combo: 'combo-apps',
-      x: apiStartX + c * 284,
-      y: apiStartY + r * 126,
-      data: { kind: 'api', label: `api-${i}`, fullName: `api-${i}`, serviceName: `api-${i}`, health: 'healthy', podBadge: '2/2 Pods', ports: '3010' },
-    });
-  }
+  const ZONE_TOP_Y = 120;
+  const CARD_HALF_W = 112;
+  const CARD_HALF_H = 34;
+  const SWITCH_HALF_W = 98;
+  const DOMAIN_HALF_W = 122;
+  const DOMAIN_HALF_H = 23;
+  const COMBO_PAD_SIDE = 36;
+  const ZONE_H_GAP = 200;
 
-  // Bottom zone Y matching Rust formula: app_last_row_y(498) + 34 + 36 + 220 + 68 + 34 = 890
-  const bottomZoneY = 890;
+  // 1. Left Zone: Network / Ingress Switch (Nginx Ingress on left, 10 domains in 2 columns x 5 rows)
   const domainRows = 5;
+  const domStartY = ZONE_TOP_Y - (CARD_HALF_H - DOMAIN_HALF_H); // 109
   const switchX = 148;
-  const switchY = bottomZoneY + ((domainRows - 1) * 78) * 0.5;
+  const switchY = domStartY + ((domainRows - 1) * 78) * 0.5; // 265
   nodes.push({
     id: 'node-ingress-switch',
     combo: 'combo-network',
@@ -433,7 +501,7 @@ function buildHeavyZonesPayload() {
     data: { kind: 'switch', label: 'Nginx Ingress', fullName: 'Nginx Ingress', badge: '10 routes', ports: '80 / 443' },
   });
 
-  const domStartX = switchX + 98 + 96 + 122; // 464
+  const domStartX = switchX + SWITCH_HALF_W + 96 + DOMAIN_HALF_W; // 464
   for (let i = 0; i < 10; i++) {
     const col = Math.floor(i / domainRows);
     const row = i % domainRows;
@@ -442,7 +510,7 @@ function buildHeavyZonesPayload() {
       id: domId,
       combo: 'combo-network',
       x: domStartX + col * 290,
-      y: bottomZoneY + row * 78,
+      y: domStartY + row * 78,
       data: { kind: 'domain', label: `svc-${i}.aombet.net`, fullName: `svc-${i}.aombet.net` },
     });
     edges.push({
@@ -459,24 +527,46 @@ function buildHeavyZonesPayload() {
     });
   }
 
-  // Storage & Workers zone matching Rust formula: net_right(464+290+122=876) + 36 + 190 + 36 + 112 = 1250
-  const storageStartX = 1250;
+  // Exact outer right of combo-network: (464 + 290 + 122) + 36 = 912
+  const netComboRight = domStartX + 290 + DOMAIN_HALF_W + COMBO_PAD_SIDE;
+
+  // 2. Middle Zone: Application Servers (24 APIs, 4 cols x 6 rows, 284 x 126 pitch)
+  const apiCols = 4;
+  const apiStartX = netComboRight + ZONE_H_GAP + COMBO_PAD_SIDE + CARD_HALF_W; // 1260
+  for (let i = 0; i < 24; i++) {
+    const r = Math.floor(i / apiCols);
+    const c = i % apiCols;
+    nodes.push({
+      id: `svc:api-${i}`,
+      combo: 'combo-apps',
+      x: apiStartX + c * 284,
+      y: ZONE_TOP_Y + r * 126,
+      data: { kind: 'api', label: `api-${i}`, fullName: `api-${i}`, serviceName: `api-${i}`, health: 'healthy', podBadge: '2/2 Pods', ports: '3010' },
+    });
+  }
+
+  // Exact outer right of combo-apps: (1260 + 3*284 + 112) + 36 = 2260
+  const appsComboRight = apiStartX + (apiCols - 1) * 284 + CARD_HALF_W + COMBO_PAD_SIDE;
+
+  // 3. Right Zone: Storage & Workers Cluster (Redis at top, 6 workers in 2 cols x 3 rows below)
+  const storageStartX = appsComboRight + ZONE_H_GAP + COMBO_PAD_SIDE + CARD_HALF_W; // 2608
+  const storageCols = 2;
   nodes.push({
     id: 'svc:shared-redis',
     combo: 'combo-storage',
     x: storageStartX,
-    y: bottomZoneY,
+    y: ZONE_TOP_Y,
     data: { kind: 'cache', label: 'shared-redis', fullName: 'shared-redis', fanIn: 30, ports: '6379' },
   });
 
   for (let i = 0; i < 6; i++) {
-    const r = 1 + Math.floor(i / 3);
-    const c = i % 3;
+    const r = 1 + Math.floor(i / storageCols);
+    const c = i % storageCols;
     nodes.push({
       id: `svc:worker-${i}`,
       combo: 'combo-storage',
       x: storageStartX + c * 284,
-      y: bottomZoneY + r * 126 + 28,
+      y: ZONE_TOP_Y + r * 126 + 28,
       data: { kind: 'worker', label: `worker-${i}`, fullName: `worker-${i}`, ports: '-' },
     });
   }
@@ -503,9 +593,9 @@ function buildHeavyZonesPayload() {
   return {
     data: {
       combos: [
-        { id: 'combo-apps', data: { isCombo: true, label: 'APPS' } },
-        { id: 'combo-network', data: { isCombo: true, label: 'NET' } },
-        { id: 'combo-storage', data: { isCombo: true, label: 'STORE' } },
+        { id: 'combo-network', data: { isCombo: true, label: 'NETWORK / INGRESS SWITCH' } },
+        { id: 'combo-apps', data: { isCombo: true, label: 'APPLICATION SERVERS' } },
+        { id: 'combo-storage', data: { isCombo: true, label: 'STORAGE & WORKERS CLUSTER' } },
       ],
       nodes,
       edges,
@@ -627,8 +717,36 @@ function verifyPolylineGeometry(nodes, edges, routed, { checkObstacles = false, 
   return { hCount: hSegs.length, vCount: vSegs.length };
 }
 
-// 5.1 Stress test ZONES mode (42 nodes, 50 edges: 10 switch->domain, 10 domain->api, 24 api->redis, 6 worker->redis)
+// 5.1 Stress test ZONES mode (Left -> Middle -> Right; 42 nodes, 50 edges)
 const heavyZonesPayload = buildHeavyZonesPayload();
+// Verify default buildPreparedData() (without overriding layoutMode) uses zones with all 3 combos Left -> Middle -> Right
+const defaultPrepared = buildPreparedData(heavyZonesPayload);
+assert.deepStrictEqual(
+  defaultPrepared.combos.map((c) => c.id),
+  ['combo-network', 'combo-apps', 'combo-storage'],
+  'Default initial buildPreparedData() must emit combos in Left -> Middle -> Right order'
+);
+const comboBoundsOf = (nodes, comboId) => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes.filter((x) => x.combo === comboId)) {
+    const cx = (n.style && typeof n.style.x === 'number') ? n.style.x : n.x;
+    const cy = (n.style && typeof n.style.y === 'number') ? n.style.y : n.y;
+    const sz = (n.style && Array.isArray(n.style.size)) ? n.style.size : [224, 68];
+    minX = Math.min(minX, cx - sz[0] / 2);
+    minY = Math.min(minY, cy - sz[1] / 2);
+    maxX = Math.max(maxX, cx + sz[0] / 2);
+    maxY = Math.max(maxY, cy + sz[1] / 2);
+  }
+  return { left: minX - 36, top: minY - 68, right: maxX + 36, bottom: maxY + 36 };
+};
+const netBox = comboBoundsOf(defaultPrepared.nodes, 'combo-network');
+const appsBox = comboBoundsOf(defaultPrepared.nodes, 'combo-apps');
+const storeBox = comboBoundsOf(defaultPrepared.nodes, 'combo-storage');
+assert(appsBox.left - netBox.right >= 180, 'combo-network must sit strictly left of combo-apps with >=180px gap');
+assert(storeBox.left - appsBox.right >= 180, 'combo-apps must sit strictly left of combo-storage with >=180px gap');
+assert(Math.abs(netBox.top - appsBox.top) < 1 && Math.abs(appsBox.top - storeBox.top) < 1, 'All 3 horizontal zone combos must align along the same top border');
+console.log('  ✔ Default initial render emits Left (Network) -> Middle (Apps) -> Right (Storage) combos with 200px gaps and aligned top headers');
+
 const preparedZonesPoly = buildPreparedDataFor(heavyZonesPayload, 'zones', 'polyline');
 assert.strictEqual(preparedZonesPoly.edges.length, 50);
 for (const e of preparedZonesPoly.edges) {
@@ -698,10 +816,10 @@ const networkStats = verifyPolylineGeometry(networkNodes, heavyZonesPayload.data
 });
 console.log(`  ✔ Network 2D (42 nodes, 50 edges): 0 overlapping segments across ${networkStats.hCount}H + ${networkStats.vCount}V segments`);
 
-// 5.4 Multi-domain -> single shared backend gateway (8 domains -> 1 gateway API)
+// 5.4 Multi-domain -> single shared backend gateway (8 domains in Left zone -> 1 gateway API in Middle zone)
 const gatewayNodes = [
-  { id: 'node-ingress-switch', combo: 'combo-network', x: 148, y: 650, data: { kind: 'switch' } },
-  { id: 'svc:gateway-api', combo: 'combo-apps', x: 480, y: 140, data: { kind: 'api' } },
+  { id: 'node-ingress-switch', combo: 'combo-network', x: 148, y: 226, data: { kind: 'switch' } },
+  { id: 'svc:gateway-api', combo: 'combo-apps', x: 1260, y: 120, data: { kind: 'api' } },
 ];
 const gatewayEdges = [];
 for (let i = 0; i < 8; i++) {
@@ -710,7 +828,7 @@ for (let i = 0; i < 8; i++) {
     id: domId,
     combo: 'combo-network',
     x: 464 + Math.floor(i / 4) * 290,
-    y: 520 + (i % 4) * 78,
+    y: 109 + (i % 4) * 78,
     data: { kind: 'domain' },
   });
   gatewayEdges.push({ id: `sw-${i}`, source: 'node-ingress-switch', target: domId, data: { kind: 'ingress-switch' } });

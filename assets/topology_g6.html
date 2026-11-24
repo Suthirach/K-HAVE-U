@@ -336,8 +336,8 @@
   </div>
 
   <div class="hud-bottom-dock">
-    <button class="hud-btn active" id="btn-layout-network" title="Spacious G6 5.0 Hub-and-Spoke Force Network">Network</button>
-    <button class="hud-btn" id="btn-layout-zones" title="Non-overlapping 3-Cluster Zones">Zones</button>
+    <button class="hud-btn active" id="btn-layout-zones" title="Left-to-Right 3-Cluster Zones (Ingress → Apps → Storage)">Zones</button>
+    <button class="hud-btn" id="btn-layout-network" title="Spacious G6 5.0 Hub-and-Spoke Force Network">Network</button>
     <button class="hud-btn" id="btn-layout-dagre" title="Dagre Hierarchical Flow">Dagre</button>
     <div class="hud-sep"></div>
     <button class="hud-btn active" id="btn-edge-curve" title="Smooth curved edges">Curves</button>
@@ -347,7 +347,7 @@
     <span id="zoom-readout">100%</span>
     <button class="hud-btn" id="btn-zoom-in" title="Zoom in">+</button>
     <button class="hud-btn" id="btn-fit" title="Fit topology to viewport">Fit</button>
-    <button class="hud-btn" id="btn-reset" title="Reset search, selection, and viewport">Reset</button>
+    <button class="hud-btn" id="btn-reset" title="Reset layout (Zones), search, selection, and viewport">Reset</button>
   </div>
 
   <div id="status-overlay">
@@ -367,8 +367,9 @@
       let graph = null;
       let currentPayload = null;
       let currentSelectedService = null;
-      let edgeMode = 'quadratic';   // 'quadratic' | 'polyline'
-      let layoutMode = 'network';   // 'network' | 'zones' | 'dagre'
+      const DEFAULT_LAYOUT_MODE = 'zones';
+      let edgeMode = 'quadratic';           // 'quadratic' | 'polyline'
+      let layoutMode = DEFAULT_LAYOUT_MODE; // 'zones' | 'network' | 'dagre'
       let searchQuery = '';
       let lastMatchIds = [];
       let matchCursor = 0;
@@ -801,7 +802,13 @@
           }
           if (mode === 'zones') {
             if (u.combo && v.combo && u.combo !== v.combo) {
+              if (hGap > 0) {
+                return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+              }
               return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+            }
+            if (u.kind === 'switch' && hGap > 0) {
+              return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
             }
             if (hGap > vGap) {
               return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
@@ -855,6 +862,50 @@
           edgeMeta.push(meta);
           addBucket(u.id, sSide, { meta, isSource: true, other: v });
           addBucket(v.id, tSide, { meta, isSource: false, other: u });
+        }
+
+        // Stage 1b: Spill high-fan-in vertical-side buckets (left/right on 68px-tall cards)
+        // onto wide horizontal top/bottom edges so port anchors always keep >= 5px separation.
+        let spilledAny = false;
+        for (const [bucketKey, items] of Array.from(sideBuckets.entries())) {
+          const sepIdx = bucketKey.lastIndexOf(':');
+          const nodeId = bucketKey.slice(0, sepIdx);
+          const side = bucketKey.slice(sepIdx + 1);
+          if (side !== 'left' && side !== 'right') continue;
+          const box = boxById.get(nodeId);
+          if (!box) continue;
+          const maxVertPorts = Math.max(2, Math.floor((box.h * 0.82) / 5.0) + 1);
+          if (items.length <= maxVertPorts) continue;
+
+          // Keep the most horizontally aligned edges on left/right; spill the farthest-in-Y edges.
+          const sorted = items.slice().sort((a, b) => {
+            const da = Math.abs(a.other.cy - box.cy);
+            const db = Math.abs(b.other.cy - box.cy);
+            if (Math.abs(da - db) > 0.5) return da - db;
+            return Math.abs(a.other.cx - box.cx) - Math.abs(b.other.cx - box.cx);
+          });
+          for (let i = maxVertPorts; i < sorted.length; i++) {
+            const m = sorted[i].meta;
+            if (m.u.top > m.v.bottom) {
+              m.sSide = 'top';
+              m.tSide = 'bottom';
+            } else if (m.v.top > m.u.bottom) {
+              m.sSide = 'bottom';
+              m.tSide = 'top';
+            } else {
+              m.sSide = 'top';
+              m.tSide = 'top';
+            }
+            spilledAny = true;
+          }
+        }
+        if (spilledAny) {
+          sideBuckets.clear();
+          for (let i = 0; i < edgeMeta.length; i++) {
+            const m = edgeMeta[i];
+            addBucket(m.u.id, m.sSide, { meta: m, isSource: true, other: m.v });
+            addBucket(m.v.id, m.tSide, { meta: m, isSource: false, other: m.u });
+          }
         }
 
         // Stage 2: Sort each side bucket by opposite endpoint coordinate to minimize crossings
@@ -2005,7 +2056,7 @@
           autoFit: shouldFit ? 'view' : undefined,
           padding: [74, 48, 74, 48],
           animation: { duration: 260 },
-          zoomRange: [0.18, 2.8],
+          zoomRange: [0.1, 2.8],
           data: prepared,
           layout,
           node: {
@@ -2279,8 +2330,13 @@
         },
         resetView() {
           currentSelectedService = null;
-          clearSearch(true);
           postIpc({ type: 'clear_selection' });
+          if (layoutMode !== DEFAULT_LAYOUT_MODE) {
+            clearSearch(false);
+            setLayoutMode(DEFAULT_LAYOUT_MODE);
+          } else {
+            clearSearch(true);
+          }
         }
       };
 
