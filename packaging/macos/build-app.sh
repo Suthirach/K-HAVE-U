@@ -69,7 +69,20 @@ cp "$ROOT/packaging/macos/อ่านก่อนติดตั้ง.txt" "$S
 osacompile -o "$STAGE/Uninstall K9s Studio.app" "$ROOT/packaging/macos/Uninstall-K9s-Studio.applescript"
 codesign --force --deep --sign - "$STAGE/Uninstall K9s Studio.app" || true
 rm -f "$DMG"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+# hdiutil's own size guess is sometimes too small ("No space left on device"): give it the
+# staged size plus headroom, and retry because CI runners occasionally report "Resource busy".
+SIZE_MB=$(( $(du -sm "$STAGE" | cut -f1) * 2 + 64 ))
+ok=0
+for attempt in 1 2 3; do
+  if hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -fs HFS+ -size "${SIZE_MB}m" \
+       -ov -format UDZO "$DMG" >/dev/null; then
+    ok=1
+    break
+  fi
+  echo "hdiutil failed (attempt $attempt), retrying..."
+  sleep 5
+done
+[ "$ok" = 1 ] || { echo "Could not create $DMG"; exit 1; }
 rm -rf "$STAGE"
 
 echo "สร้างเสร็จ:"

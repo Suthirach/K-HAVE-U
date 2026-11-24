@@ -35,6 +35,9 @@ jobs:
         with:
           workspaces: |
             K-HAVE-U
+          # Keep compiled rune (a path dependency) in the cache too: it is the slowest part.
+          cache-workspace-crates: true
+          cache-on-failure: true
       - name: Build universal .app and .dmg
         working-directory: K-HAVE-U
         env:
@@ -68,6 +71,9 @@ jobs:
         with:
           workspaces: |
             K-HAVE-U
+          # Keep compiled rune (a path dependency) in the cache too: it is the slowest part.
+          cache-workspace-crates: true
+          cache-on-failure: true
       - name: Build
         working-directory: K-HAVE-U
         run: cargo build --release
