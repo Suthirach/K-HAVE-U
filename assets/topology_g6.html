@@ -1633,11 +1633,12 @@
         } catch (_) {}
       }
 
-      function findMatchingNodes(query) {
-        if (!currentPayload || !query) return [];
+      function findMatchingNodes(query, payloadArg) {
+        const payload = payloadArg || currentPayload;
+        if (!payload || !query) return [];
         const q = query.trim().toLowerCase();
         if (!q) return [];
-        const nodes = currentPayload.data.nodes || [];
+        const nodes = (payload.data && payload.data.nodes) || [];
         const matched = [];
         for (const n of nodes) {
           const d = n.data || {};
@@ -1735,23 +1736,21 @@
         }
       }
 
-      async function applySelectionAndSearch(shouldFocusCamera) {
-        if (!graph || !currentPayload) return;
-        const nodes = currentPayload.data.nodes || [];
-        const edges = currentPayload.data.edges || [];
-        const combos = layoutMode === 'zones' ? (currentPayload.data.combos || []) : [];
-        const trimmedQuery = searchQuery.trim();
+      function computeElementStates(payload, opts) {
+        const data = (payload && payload.data) || { nodes: [], edges: [], combos: [] };
+        const nodes = data.nodes || [];
+        const edges = data.edges || [];
+        const activeLayout = (opts && opts.layoutMode) || layoutMode;
+        const combos = activeLayout === 'zones' ? (data.combos || []) : [];
+        const trimmedQuery = String((opts && opts.searchQuery) || '').trim();
+        const selectedService = (opts && opts.selectedService) || null;
 
         const stateMap = {};
 
         // Mode A: Spotlight Search takes precedence — highlight ONLY matched nodes,
         // dark-fade all non-matching nodes & edges, AND hide text labels on non-matches!
         if (trimmedQuery.length > 0) {
-          const matchIds = findMatchingNodes(trimmedQuery);
-          lastMatchIds = matchIds;
-          matchCursor = 0;
-          updateSearchHud(trimmedQuery, matchIds);
-
+          const matchIds = findMatchingNodes(trimmedQuery, payload);
           const matchSet = new Set(matchIds);
           for (const n of nodes) {
             stateMap[n.id] = matchSet.has(n.id) ? ['search-match'] : ['search-dim'];
@@ -1764,45 +1763,36 @@
           for (const c of combos) {
             stateMap[c.id] = ['search-dim'];
           }
-
-          try {
-            await graph.setElementState(stateMap, false);
-          } catch (err) {
-            console.warn('setElementState (search) error:', err);
-          }
-
-          if (shouldFocusCamera && matchIds.length > 0) {
-            await focusMatchedNodes(matchIds);
-          }
-          return;
+          return { mode: 'search', matchIds, stateMap };
         }
 
-        // Clearing search restores everything cleanly
-        lastMatchIds = [];
-        matchCursor = 0;
-        updateSearchHud('', []);
-
-        // Mode B: Service selection highlight (1-hop neighborhood)
+        // Mode B: Click selection — highlight ONLY the clicked service node itself and its
+        // direct 1-hop incident edges. Never mutate the seed node set while scanning edges
+        // (prevents 2-hop hub cascade to sibling services) and keep all other nodes dimmed.
         const selectedNodeIds = new Set();
-        const highlightedNodeIds = new Set();
-        const highlightedEdgeIds = new Set();
-
-        if (currentSelectedService) {
+        if (selectedService) {
+          // Prefer the primary service card (api / cache / worker) over domain pills that
+          // also carry `data.serviceName` pointing at their backend service.
           for (const n of nodes) {
-            if (n.data && n.data.serviceName === currentSelectedService) {
+            if (n.data && n.data.serviceName === selectedService && n.data.kind !== 'domain') {
               selectedNodeIds.add(n.id);
-              highlightedNodeIds.add(n.id);
+            }
+          }
+          if (selectedNodeIds.size === 0) {
+            for (const n of nodes) {
+              if (n.data && n.data.serviceName === selectedService) {
+                selectedNodeIds.add(n.id);
+              }
             }
           }
         }
 
-        const hasFocus = highlightedNodeIds.size > 0;
+        const hasFocus = selectedNodeIds.size > 0;
+        const highlightedEdgeIds = new Set();
         if (hasFocus) {
           for (const e of edges) {
-            if (highlightedNodeIds.has(e.source) || highlightedNodeIds.has(e.target)) {
+            if (selectedNodeIds.has(e.source) || selectedNodeIds.has(e.target)) {
               highlightedEdgeIds.add(e.id);
-              highlightedNodeIds.add(e.source);
-              highlightedNodeIds.add(e.target);
             }
           }
         }
@@ -1810,8 +1800,6 @@
         for (const n of nodes) {
           if (selectedNodeIds.has(n.id)) {
             stateMap[n.id] = ['selected'];
-          } else if (hasFocus && highlightedNodeIds.has(n.id)) {
-            stateMap[n.id] = ['active'];
           } else if (hasFocus) {
             stateMap[n.id] = ['inactive'];
           } else {
@@ -1830,6 +1818,40 @@
         for (const c of combos) {
           stateMap[c.id] = [];
         }
+
+        return { mode: hasFocus ? 'selection' : 'idle', matchIds: [], stateMap };
+      }
+
+      async function applySelectionAndSearch(shouldFocusCamera) {
+        if (!graph || !currentPayload) return;
+        const trimmedQuery = searchQuery.trim();
+        const { mode, matchIds, stateMap } = computeElementStates(currentPayload, {
+          searchQuery: trimmedQuery,
+          selectedService: currentSelectedService,
+          layoutMode,
+        });
+
+        if (mode === 'search') {
+          lastMatchIds = matchIds;
+          matchCursor = 0;
+          updateSearchHud(trimmedQuery, matchIds);
+
+          try {
+            await graph.setElementState(stateMap, false);
+          } catch (err) {
+            console.warn('setElementState (search) error:', err);
+          }
+
+          if (shouldFocusCamera && matchIds.length > 0) {
+            await focusMatchedNodes(matchIds);
+          }
+          return;
+        }
+
+        // Clearing search restores everything cleanly
+        lastMatchIds = [];
+        matchCursor = 0;
+        updateSearchHud('', []);
 
         try {
           await graph.setElementState(stateMap, false);
@@ -1997,6 +2019,7 @@
                 labelOpacity: 1,
                 fillOpacity: 1,
                 strokeOpacity: 1,
+                zIndex: 10,
               },
               'search-match': {
                 stroke: '#fbbf24',
@@ -2029,6 +2052,7 @@
                 fillOpacity: 0.24,
                 strokeOpacity: 0.18,
                 labelOpacity: 0.28,
+                shadowBlur: 0,
               },
             },
           },
@@ -2129,6 +2153,20 @@
             currentSelectedService = null;
             applySelectionAndSearch(false);
             postIpc({ type: 'clear_selection' });
+          }
+        });
+
+        graph.on('combo:click', () => {
+          if (currentSelectedService) {
+            currentSelectedService = null;
+            applySelectionAndSearch(false);
+            postIpc({ type: 'clear_selection' });
+          }
+        });
+
+        graph.on('node:pointerleave', () => {
+          if (currentSelectedService && !searchQuery.trim()) {
+            applySelectionAndSearch(false);
           }
         });
 
@@ -2334,6 +2372,12 @@
         if (e.key === 'Escape') {
           if (searchQuery.trim()) {
             clearSearch(true);
+            return;
+          }
+          if (currentSelectedService) {
+            currentSelectedService = null;
+            applySelectionAndSearch(false);
+            postIpc({ type: 'clear_selection' });
             return;
           }
           postIpc({ type: 'exit_fullscreen' });

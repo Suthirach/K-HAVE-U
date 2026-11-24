@@ -23,6 +23,7 @@ const injection = `
       currentPayload = payload;
       return findMatchingNodes(q);
     },
+    computeElementStates,
     renderTooltipContent,
     layoutConfigFor,
     computePolylineRoutes,
@@ -79,6 +80,7 @@ const {
   formatPortBadge,
   healthColors,
   findMatchingNodes,
+  computeElementStates,
   renderTooltipContent,
   layoutConfigFor,
   computePolylineRoutes,
@@ -734,6 +736,226 @@ assert(html.includes("graph.on('node:dragstart'"), 'HTML must keep dragged polyl
 assert(html.includes("graph.on('node:dragend'"), 'HTML must recompute non-overlapping lanes on node:dragend');
 console.log('  ✔ Curves/Polyline toggle, post-layout rerouting, drag hooks, and Search Spotlight/selection state preservation verified');
 
+
+// ============================================================================
+// REQUIREMENT 6: Click-Selection Isolation (Zero Hub Cascade / Sibling Bleed)
+// ============================================================================
+console.log('\n[Requirement 6] Click-selection isolation (single node highlight, zero hub cascade):');
+
+function buildSharedHubProdPayload() {
+  const nodes = [
+    {
+      id: 'node-ingress-switch',
+      combo: 'combo-network',
+      data: { kind: 'switch', label: 'Nginx Ingress', fullName: 'Nginx Ingress (PROD)', serviceName: null, hosts: ['joker.aombet.net', 'pg.aombet.net'] },
+    },
+    {
+      id: 'domain:0:joker.aombet.net',
+      combo: 'combo-network',
+      data: { kind: 'domain', label: 'joker.aombet.net', fullName: 'joker.aombet.net', serviceName: 'prod-joker-srv', hosts: ['joker.aombet.net'] },
+    },
+    {
+      id: 'domain:1:pg.aombet.net',
+      combo: 'combo-network',
+      data: { kind: 'domain', label: 'pg.aombet.net', fullName: 'pg.aombet.net', serviceName: 'prod-pg-srv', hosts: ['pg.aombet.net'] },
+    },
+    {
+      id: 'svc:prod-redis-srv',
+      combo: 'combo-storage',
+      data: { kind: 'cache', label: 'prod-redis-srv', fullName: 'prod-redis-srv', serviceName: 'prod-redis-srv', ports: '6379', fanIn: 21 },
+    },
+    {
+      id: 'svc:prod-hangfire-redis-srv',
+      combo: 'combo-storage',
+      data: { kind: 'cache', label: 'prod-hangfire-redis-srv', fullName: 'prod-hangfire-redis-srv', serviceName: 'prod-hangfire-redis-srv', ports: '6379', fanIn: 12 },
+    },
+    {
+      id: 'svc:prod-joker-srv',
+      combo: 'combo-apps',
+      data: { kind: 'api', label: 'prod-joker-srv', fullName: 'prod-joker-srv', serviceName: 'prod-joker-srv', ports: '3010', hosts: ['joker.aombet.net'], connectsTo: ['prod-redis-srv', 'prod-hangfire-redis-srv'] },
+    },
+  ];
+
+  const siblingNames = [
+    'prod-pg-srv',
+    'prod-pp-srv',
+    'prod-sa-srv',
+    'prod-sbo-srv',
+    'prod-onebx-srv',
+  ];
+  for (let i = 0; i < 16; i++) {
+    siblingNames.push(`prod-partner-${String(i).padStart(2, '0')}-srv`);
+  }
+
+  for (const name of siblingNames) {
+    nodes.push({
+      id: `svc:${name}`,
+      combo: 'combo-apps',
+      data: { kind: 'api', label: name, fullName: name, serviceName: name, ports: '3010', connectsTo: ['prod-redis-srv', 'prod-hangfire-redis-srv'] },
+    });
+  }
+
+  nodes.push({
+    id: 'svc:prod-hangfire-worker',
+    combo: 'combo-storage',
+    data: { kind: 'worker', label: 'prod-hangfire-worker', fullName: 'prod-hangfire-worker', serviceName: 'prod-hangfire-worker', ports: '-', connectsTo: ['prod-hangfire-redis-srv'] },
+  });
+
+  // Deliberately place prod-joker-srv -> prod-redis-srv FIRST (the exact edge order
+  // that previously triggered the transitive hub mutation cascade into all 20+ siblings!)
+  const edges = [
+    { id: 'e-joker-redis', source: 'svc:prod-joker-srv', target: 'svc:prod-redis-srv', data: { kind: 'service-dep' } },
+    { id: 'e-joker-hf', source: 'svc:prod-joker-srv', target: 'svc:prod-hangfire-redis-srv', data: { kind: 'service-dep' } },
+    { id: 'e-dom-joker', source: 'domain:0:joker.aombet.net', target: 'svc:prod-joker-srv', data: { kind: 'ingress-route' } },
+    { id: 'e-sw-joker', source: 'node-ingress-switch', target: 'domain:0:joker.aombet.net', data: { kind: 'ingress-switch' } },
+    { id: 'e-sw-pg', source: 'node-ingress-switch', target: 'domain:1:pg.aombet.net', data: { kind: 'ingress-switch' } },
+    { id: 'e-dom-pg', source: 'domain:1:pg.aombet.net', target: 'svc:prod-pg-srv', data: { kind: 'ingress-route' } },
+    { id: 'e-worker-hf', source: 'svc:prod-hangfire-worker', target: 'svc:prod-hangfire-redis-srv', data: { kind: 'service-dep' } },
+  ];
+
+  for (let i = 0; i < siblingNames.length; i++) {
+    const name = siblingNames[i];
+    edges.push({
+      id: `e-sib-redis-${i}`,
+      source: `svc:${name}`,
+      target: 'svc:prod-redis-srv',
+      data: { kind: 'service-dep' },
+    });
+    if (i < 10) {
+      edges.push({
+        id: `e-sib-hf-${i}`,
+        source: `svc:${name}`,
+        target: 'svc:prod-hangfire-redis-srv',
+        data: { kind: 'service-dep' },
+      });
+    }
+  }
+
+  return {
+    siblingNames,
+    payload: {
+      data: {
+        combos: [
+          { id: 'combo-apps', data: { isCombo: true, label: 'APPS' } },
+          { id: 'combo-network', data: { isCombo: true, label: 'NET' } },
+          { id: 'combo-storage', data: { isCombo: true, label: 'STORE' } },
+        ],
+        nodes,
+        edges,
+      },
+    },
+  };
+}
+
+const { payload: prodPayload, siblingNames } = buildSharedHubProdPayload();
+
+// 6.1 Clicking prod-joker-srv must highlight ONLY prod-joker-srv (and never sibling APIs, shared hubs, or sibling edges)
+const arr = (v) => Array.from(v || []);
+const selRes = computeElementStates(prodPayload, {
+  selectedService: 'prod-joker-srv',
+  searchQuery: '',
+  layoutMode: 'zones',
+});
+assert.strictEqual(selRes.mode, 'selection');
+assert.deepStrictEqual(arr(selRes.stateMap['svc:prod-joker-srv']), ['selected'], 'Clicked prod-joker-srv must have state ["selected"]');
+
+const selectedNodes = prodPayload.data.nodes.filter((n) => arr(selRes.stateMap[n.id]).includes('selected'));
+const activeNodes = prodPayload.data.nodes.filter((n) => arr(selRes.stateMap[n.id]).includes('active'));
+assert.deepStrictEqual(selectedNodes.map((n) => n.id), ['svc:prod-joker-srv'], 'ONLY prod-joker-srv may be selected');
+assert.strictEqual(activeNodes.length, 0, 'ZERO other nodes may light up in active (bright yellow) state');
+
+// All 21 sibling APIs must stay dimmed (inactive)
+for (const sib of siblingNames) {
+  assert.deepStrictEqual(
+    arr(selRes.stateMap[`svc:${sib}`]),
+    ['inactive'],
+    `Sibling service ${sib} must remain dimmed ["inactive"], never highlighted`
+  );
+}
+// Shared hub caches, worker, ingress switch, and even joker domain pill must stay dimmed (inactive)
+for (const otherId of [
+  'svc:prod-redis-srv',
+  'svc:prod-hangfire-redis-srv',
+  'svc:prod-hangfire-worker',
+  'node-ingress-switch',
+  'domain:0:joker.aombet.net',
+  'domain:1:pg.aombet.net',
+]) {
+  assert.deepStrictEqual(
+    arr(selRes.stateMap[otherId]),
+    ['inactive'],
+    `Non-clicked node ${otherId} must stay dimmed ["inactive"]`
+  );
+}
+
+// Only direct 1-hop incident edges of prod-joker-srv are active; ALL sibling/hub/switch edges are inactive
+const expectedActiveEdges = new Set(['e-joker-redis', 'e-joker-hf', 'e-dom-joker']);
+for (const e of prodPayload.data.edges) {
+  if (expectedActiveEdges.has(e.id)) {
+    assert.deepStrictEqual(arr(selRes.stateMap[e.id]), ['active'], `Direct incident edge ${e.id} of prod-joker-srv should be ["active"]`);
+  } else {
+    assert.deepStrictEqual(arr(selRes.stateMap[e.id]), ['inactive'], `Unrelated/sibling edge ${e.id} must stay dimmed ["inactive"]`);
+  }
+}
+console.log('  ✔ Clicking prod-joker-srv (sharing prod-redis-srv with 21 siblings) highlights ONLY prod-joker-srv and its 3 direct edges; all 21 siblings, hubs, and sibling edges stay dimmed');
+
+// 6.2 Clicking shared hub prod-redis-srv directly highlights ONLY prod-redis-srv node (never lighting up 21 APIs in yellow)
+const hubSel = computeElementStates(prodPayload, {
+  selectedService: 'prod-redis-srv',
+  searchQuery: '',
+  layoutMode: 'zones',
+});
+assert.deepStrictEqual(
+  prodPayload.data.nodes.filter((n) => arr(hubSel.stateMap[n.id]).includes('selected')).map((n) => n.id),
+  ['svc:prod-redis-srv']
+);
+assert.strictEqual(
+  prodPayload.data.nodes.filter((n) => arr(hubSel.stateMap[n.id]).includes('active')).length,
+  0,
+  'Clicking shared hub prod-redis-srv must NOT light up any connected API nodes in yellow'
+);
+assert.deepStrictEqual(arr(hubSel.stateMap['svc:prod-joker-srv']), ['inactive']);
+assert.deepStrictEqual(arr(hubSel.stateMap['svc:prod-pg-srv']), ['inactive']);
+console.log('  ✔ Clicking shared hub prod-redis-srv highlights ONLY prod-redis-srv node; all connected APIs remain dimmed');
+
+// 6.3 Clearing selection restores every node, edge, and combo cleanly to []
+const idleRes = computeElementStates(prodPayload, {
+  selectedService: null,
+  searchQuery: '',
+  layoutMode: 'zones',
+});
+assert.strictEqual(idleRes.mode, 'idle');
+for (const n of prodPayload.data.nodes) {
+  assert.deepStrictEqual(arr(idleRes.stateMap[n.id]), [], `Cleared selection must restore node ${n.id} to []`);
+}
+for (const e of prodPayload.data.edges) {
+  assert.deepStrictEqual(arr(idleRes.stateMap[e.id]), [], `Cleared selection must restore edge ${e.id} to []`);
+}
+for (const c of prodPayload.data.combos) {
+  assert.deepStrictEqual(arr(idleRes.stateMap[c.id]), [], `Cleared selection must restore combo ${c.id} to []`);
+}
+console.log('  ✔ Clearing selection restores all nodes, edges, and combos cleanly to []');
+
+// 6.4 Search Spotlight still takes precedence cleanly even when a service is selected
+const searchOverSel = computeElementStates(prodPayload, {
+  selectedService: 'prod-joker-srv',
+  searchQuery: 'prod-pg-srv',
+  layoutMode: 'zones',
+});
+assert.strictEqual(searchOverSel.mode, 'search');
+assert.deepStrictEqual(arr(searchOverSel.stateMap['svc:prod-pg-srv']), ['search-match']);
+assert.deepStrictEqual(arr(searchOverSel.stateMap['svc:prod-joker-srv']), ['search-dim']);
+assert.deepStrictEqual(arr(searchOverSel.stateMap['svc:prod-redis-srv']), ['search-dim']);
+assert.deepStrictEqual(arr(searchOverSel.stateMap['e-joker-redis']), ['search-dim']);
+assert.deepStrictEqual(arr(searchOverSel.stateMap['combo-apps']), ['search-dim']);
+
+// Verify canvas click, combo click, Escape, and Reset clear selection in HTML
+assert(html.includes("graph.on('canvas:click'"), 'Canvas background click must clear selection');
+assert(html.includes("graph.on('combo:click'"), 'Combo background click must clear selection');
+assert(html.includes("if (currentSelectedService) {\n            currentSelectedService = null;\n            applySelectionAndSearch(false);\n            postIpc({ type: 'clear_selection' });\n            return;\n          }"), 'Escape key must clear active selection before exiting fullscreen');
+assert(html.includes('resetView() {'), 'Reset action must clear selection and search');
+console.log('  ✔ Search Spotlight precedence, canvas/combo click, Esc, and Reset clear-selection verified');
+
 console.log('\n======================================================');
-console.log('ALL 5 REQUIREMENTS AND EDGE CASES VERIFIED SUCCESSFULLY!');
+console.log('ALL 6 REQUIREMENTS AND EDGE CASES VERIFIED SUCCESSFULLY!');
 console.log('======================================================\n');
