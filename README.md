@@ -86,8 +86,8 @@ target\debug\k9s-ui.exe --scene overview --size 1340x860 --scale 1 --snap overvi
 
 | เครื่อง | ไฟล์ | วิธีติดตั้ง |
 | --- | --- | --- |
-| Mac (M1/M2/M3 และ Intel) | `K9s-Studio-Mac.dmg` | เปิดไฟล์ แล้วลาก **K9s Studio** ไปที่ Applications (ครั้งแรกถ้ามีเตือน: คลิกขวา → Open) |
-| Windows 10/11 (x64) | `K9s-Studio-Windows-Setup.exe` | ดับเบิลคลิกแล้วกด Next ไปจนเสร็จ (ถ้าเจอ SmartScreen: More info → Run anyway) |
+| Mac (M1/M2/M3 และ Intel) | `K9s-Studio-Mac.dmg` | เปิดไฟล์ ดับเบิลคลิก **Install K9s Studio** → กด **ติดตั้ง** แอปจะเปิดขึ้นมาให้ใส่ key แล้วกด **ตกลง** (ครั้งแรกถ้ามีเตือน: คลิกขวา → Open) |
+| Windows 10/11 (x64) | `K9s-Studio-Windows-Setup.exe` | ดับเบิลคลิก → Next → ใส่ key → Install → แอปเปิดขึ้นมาและติดตั้งเครื่องมือที่เหลือเอง (ถ้าเจอ SmartScreen: More info → Run anyway) |
 
 - **เครื่องมือที่ต้องใช้ (kubectl, k9s, gcloud):** ถ้าเครื่องยังไม่มี แอปจะขึ้นแถบเหลือง กด **ติดตั้งให้อัตโนมัติ** แอปจะโหลดมาเก็บในโฟลเดอร์ของแอปเอง
 - **อัปเดต:** ตอนเปิดแอปจะเช็กเวอร์ชันใหม่จาก Releases ถ้ามีจะขึ้นปุ่ม **อัปเดตเป็น vX** ที่แถบด้านบน กดแล้วแอปโหลดตัวใหม่ ติดตั้งทับ และเปิดใหม่ให้เอง 

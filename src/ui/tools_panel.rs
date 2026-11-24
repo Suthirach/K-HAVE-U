@@ -39,7 +39,7 @@ pub fn view(s: &AppState, k: &Kit) -> Option<El> {
                     .color(theme::text_base()),
             )
             .child(
-                text(short(&s.tools_log))
+                text(format!("{:.0}%  ·  {}", s.tools_percent, short(&s.tools_log)))
                     .font(k.ty.small_medium)
                     .color(theme::text_muted()),
             );

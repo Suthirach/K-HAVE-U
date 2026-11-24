@@ -176,7 +176,7 @@ pub enum K8sEvent {
     UpdateCheck(Result<Option<String>, String>),
     UpdateFailed(String),
     ToolsStatus(Vec<String>),
-    ToolsProgress(String),
+    ToolsProgress { message: String, percent: f32 },
     ToolsDone(Result<(), String>),
     Logs { pod: String, text: String },
     EnvVars { deploy: String, vars: Vec<EnvVarItem> },

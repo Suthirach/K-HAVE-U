@@ -94,6 +94,9 @@ pub struct AppState {
     pub update_note: Option<String>,
     pub show_setup: bool,
     pub tools_checked: bool,
+    pub tools_percent: f32,
+    /// "ตกลง" was pressed on the setup screen: install what is missing, then go to sign-in.
+    pub setup_pending: bool,
 
     // Navigation & Environment
     pub open_tabs: Vec<WorkspaceTab>,
@@ -184,6 +187,8 @@ impl AppState {
         let env = active_tab.env;
         let namespace = active_tab.namespace.clone();
         let snapshot = demo_snapshot(env, &namespace, "gke-cluster", None);
+        let show_setup = !crate::update::setup_done();
+        let update_token = crate::update::load_token();
 
         Self {
             accounts: auth::default_accounts(),
@@ -208,11 +213,14 @@ impl AppState {
             tools_log: String::new(),
             tools_error: None,
             update: UpdateState::Idle,
-            update_token: crate::update::load_token(),
+            // The key was already entered in the installer: skip the form and install right away.
+            setup_pending: show_setup && update_token.is_some(),
+            update_token,
             update_token_input: TextEdit::new(""),
             update_note: None,
-            show_setup: !crate::update::setup_done(),
+            show_setup,
             tools_checked: false,
+            tools_percent: 0.0,
             open_tabs,
             active_tab_id,
             next_tab_id,
@@ -323,6 +331,7 @@ impl AppState {
             return;
         }
         self.tools_installing = true;
+        self.tools_percent = 0.0;
         self.tools_error = None;
         self.tools_log = "เริ่มดาวน์โหลด...".to_string();
         let tx = self.k8s_tx.clone();
@@ -342,6 +351,28 @@ impl AppState {
                 w();
             }
         });
+    }
+
+    /// The single "ตกลง" button on the setup screen: save the key (if any), then install
+    /// whatever is missing without asking again, then go to sign-in.
+    pub fn setup_confirm(&mut self) {
+        if !self.update_token_input.text.trim().is_empty() {
+            self.save_update_token();
+        }
+        self.tools_error = None;
+        self.setup_pending = true;
+        if self.tools_checked {
+            self.continue_setup();
+        }
+    }
+
+    fn continue_setup(&mut self) {
+        if self.tools_missing.is_empty() {
+            self.setup_pending = false;
+            self.finish_setup();
+        } else {
+            self.install_tools();
+        }
     }
 
     /// Closes the first-run setup screen and remembers it was done.
@@ -1130,9 +1161,13 @@ impl AppState {
                 K8sEvent::ToolsStatus(list) => {
                     self.tools_checked = true;
                     self.tools_missing = list;
+                    if self.setup_pending && !self.tools_installing {
+                        self.continue_setup();
+                    }
                 }
-                K8sEvent::ToolsProgress(msg) => {
-                    self.tools_log = msg;
+                K8sEvent::ToolsProgress { message, percent } => {
+                    self.tools_log = message;
+                    self.tools_percent = percent;
                 }
                 K8sEvent::ToolsDone(result) => {
                     self.tools_installing = false;
@@ -1140,9 +1175,15 @@ impl AppState {
                         Ok(()) => {
                             self.tools_error = None;
                             self.tools_log.clear();
+                            self.tools_missing.clear();
+                            if self.setup_pending {
+                                self.setup_pending = false;
+                                self.finish_setup();
+                            }
                             self.check_tools();
                         }
                         Err(e) => {
+                            self.setup_pending = false;
                             self.tools_error = Some(e);
                         }
                     }

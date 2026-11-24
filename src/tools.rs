@@ -4,8 +4,10 @@
 
 use crate::auth::gcloud_command;
 use crate::k8s::K8sEvent;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 use std::sync::mpsc;
 
 /// Folder where the app keeps the tools it downloads itself.
@@ -77,51 +79,139 @@ pub fn spawn_install(
     wake: impl Fn() + Send + 'static,
 ) {
     std::thread::spawn(move || {
-        let say = |msg: &str| {
-            let _ = tx.send(K8sEvent::ToolsProgress(msg.to_string()));
+        let send = |msg: &str, percent: f32| {
+            let _ = tx.send(K8sEvent::ToolsProgress {
+                message: msg.to_string(),
+                percent,
+            });
             wake();
         };
-        let result = install_all(&missing, &say);
+        let result = install_all(&missing, &send);
         let _ = tx.send(K8sEvent::ToolsDone(result));
         wake();
     });
 }
 
-fn install_all(missing: &[String], say: &dyn Fn(&str)) -> Result<(), String> {
+// Share of the progress bar for each step (only the steps that actually run are counted).
+const W_KUBECTL: f32 = 15.0;
+const W_K9S: f32 = 10.0;
+const W_GCLOUD_DOWNLOAD: f32 = 55.0;
+const W_GCLOUD_EXTRACT: f32 = 10.0;
+const W_GCLOUD_SETUP: f32 = 5.0;
+const W_PLUGIN: f32 = 5.0;
+
+/// Turns step progress into one overall percentage and reports it (only when it changes).
+struct Progress<'a> {
+    send: &'a dyn Fn(&str, f32),
+    total: f32,
+    done: Cell<f32>,
+    last: Cell<i32>,
+    message: RefCell<String>,
+}
+
+impl Progress<'_> {
+    fn begin(&self, message: &str) {
+        *self.message.borrow_mut() = message.to_string();
+        self.emit(0.0, true);
+    }
+
+    /// `fraction` (0..1) of a step worth `weight` is done.
+    fn part(&self, weight: f32, fraction: f32) {
+        self.emit(weight * fraction.clamp(0.0, 1.0), false);
+    }
+
+    fn finish(&self, weight: f32) {
+        self.done.set(self.done.get() + weight);
+        self.emit(0.0, true);
+    }
+
+    fn emit(&self, extra: f32, force: bool) {
+        let pct = if self.total > 0.0 {
+            ((self.done.get() + extra) / self.total * 100.0).clamp(0.0, 100.0)
+        } else {
+            100.0
+        };
+        let whole = pct as i32;
+        if force || whole != self.last.get() {
+            self.last.set(whole);
+            (self.send)(&self.message.borrow(), pct);
+        }
+    }
+}
+
+/// Temporary folder for downloaded archives (cleaned up after each install).
+fn temp_dir() -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join("k9s-studio-install");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("สร้างโฟลเดอร์ชั่วคราวไม่ได้: {e}"))?;
+    Ok(dir)
+}
+
+fn install_all(missing: &[String], send: &dyn Fn(&str, f32)) -> Result<(), String> {
     let dir = tools_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("สร้างโฟลเดอร์ {} ไม่ได้: {e}", dir.display()))?;
     let has = |name: &str| missing.iter().any(|m| m == name);
+    let need_plugin = has("gcloud") || has("gke-gcloud-auth-plugin");
 
+    let mut total = 0.0;
     if has("kubectl") {
-        install_kubectl(&dir, say)?;
+        total += W_KUBECTL;
     }
     if has("k9s") {
-        install_k9s(&dir, say)?;
+        total += W_K9S;
     }
     if has("gcloud") {
-        install_gcloud(&dir, say)?;
+        total += W_GCLOUD_DOWNLOAD + W_GCLOUD_EXTRACT + W_GCLOUD_SETUP;
     }
-    if has("gcloud") || has("gke-gcloud-auth-plugin") {
-        say("กำลังติดตั้ง gke-gcloud-auth-plugin...");
-        let out = gcloud_command(&["components", "install", "gke-gcloud-auth-plugin", "--quiet"])
-            .output()
-            .map_err(|e| format!("เรียก gcloud ไม่สำเร็จ: {e}"))?;
-        if !out.status.success() {
-            return Err(format!(
-                "ติดตั้ง gke-gcloud-auth-plugin ไม่สำเร็จ: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
+    if need_plugin {
+        total += W_PLUGIN;
+    }
+    let prog = Progress {
+        send,
+        total,
+        done: Cell::new(0.0),
+        last: Cell::new(-1),
+        message: RefCell::new(String::new()),
+    };
+
+    let tmp = temp_dir()?;
+    let result = (|| {
+        if has("kubectl") {
+            install_kubectl(&dir, &prog)?;
         }
+        if has("k9s") {
+            install_k9s(&dir, &tmp, &prog)?;
+        }
+        if has("gcloud") {
+            install_gcloud(&dir, &tmp, &prog)?;
+        }
+        if need_plugin {
+            prog.begin("กำลังติดตั้ง gke-gcloud-auth-plugin...");
+            let out = gcloud_command(&["components", "install", "gke-gcloud-auth-plugin", "--quiet"])
+                .output()
+                .map_err(|e| format!("เรียก gcloud ไม่สำเร็จ: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "ติดตั้ง gke-gcloud-auth-plugin ไม่สำเร็จ: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            prog.finish(W_PLUGIN);
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&tmp);
+    if result.is_ok() {
+        prog.begin("ติดตั้งเสร็จแล้ว");
     }
-    Ok(())
+    result
 }
 
 fn arch() -> &'static str {
     if cfg!(target_arch = "aarch64") { "arm64" } else { "amd64" }
 }
 
-fn install_kubectl(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
-    say("กำลังโหลด kubectl...");
+fn install_kubectl(dir: &Path, prog: &Progress) -> Result<(), String> {
+    prog.begin("กำลังโหลด kubectl...");
     let version = curl_text("https://dl.k8s.io/release/stable.txt")?;
     let (os, exe) = if cfg!(windows) {
         ("windows", "kubectl.exe")
@@ -132,12 +222,14 @@ fn install_kubectl(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
     };
     let url = format!("https://dl.k8s.io/release/{version}/bin/{os}/{}/{exe}", arch());
     let dest = dir.join(exe);
-    download(&url, &dest)?;
-    make_executable(&dest)
+    download_tracked(&url, &dest, &|f| prog.part(W_KUBECTL, f))?;
+    make_executable(&dest)?;
+    prog.finish(W_KUBECTL);
+    Ok(())
 }
 
-fn install_k9s(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
-    say("กำลังโหลด k9s...");
+fn install_k9s(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String> {
+    prog.begin("กำลังโหลด k9s...");
     let (os, ext, exe) = if cfg!(windows) {
         ("Windows", "zip", "k9s.exe")
     } else if cfg!(target_os = "macos") {
@@ -149,22 +241,20 @@ fn install_k9s(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
         "https://github.com/derailed/k9s/releases/latest/download/k9s_{os}_{}.{ext}",
         arch()
     );
-    let archive = dir.join(format!("k9s-download.{ext}"));
-    let tmp = dir.join("_k9s_tmp");
-    download(&url, &archive)?;
-    extract(&archive, &tmp)?;
+    let archive = tmp.join(format!("k9s.{ext}"));
+    let unpack = tmp.join("k9s");
+    download_tracked(&url, &archive, &|f| prog.part(W_K9S * 0.9, f))?;
+    extract(&archive, &unpack)?;
     let dest = dir.join(exe);
     let _ = std::fs::remove_file(&dest);
-    std::fs::rename(tmp.join(exe), &dest)
-        .or_else(|_| std::fs::copy(tmp.join(exe), &dest).map(|_| ()))
-        .map_err(|e| format!("ติดตั้ง k9s ไม่สำเร็จ: {e}"))?;
-    let _ = std::fs::remove_dir_all(&tmp);
-    let _ = std::fs::remove_file(&archive);
-    make_executable(&dest)
+    std::fs::copy(unpack.join(exe), &dest).map_err(|e| format!("ติดตั้ง k9s ไม่สำเร็จ: {e}"))?;
+    make_executable(&dest)?;
+    prog.finish(W_K9S);
+    Ok(())
 }
 
-fn install_gcloud(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
-    say("กำลังโหลด gcloud (ไฟล์ใหญ่ อาจใช้เวลาสักพัก)...");
+fn install_gcloud(dir: &Path, tmp: &Path, prog: &Progress) -> Result<(), String> {
+    prog.begin("กำลังโหลด gcloud (ไฟล์ใหญ่ อาจใช้เวลาสักพัก)...");
     let base = "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads";
     let (file, ext) = if cfg!(windows) {
         ("google-cloud-cli-windows-x86_64.zip".to_string(), "zip")
@@ -174,14 +264,19 @@ fn install_gcloud(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
     } else {
         ("google-cloud-cli-linux-x86_64.tar.gz".to_string(), "tar.gz")
     };
-    let archive = dir.join(format!("gcloud-download.{ext}"));
-    download(&format!("{base}/{file}"), &archive)?;
-    say("กำลังแตกไฟล์ gcloud...");
-    extract(&archive, dir)?;
-    let _ = std::fs::remove_file(&archive);
+    let archive = tmp.join(format!("gcloud.{ext}"));
+    download_tracked(&format!("{base}/{file}"), &archive, &|f| {
+        prog.part(W_GCLOUD_DOWNLOAD, f)
+    })?;
+    prog.finish(W_GCLOUD_DOWNLOAD);
 
-    say("กำลังตั้งค่า gcloud...");
+    prog.begin("กำลังแตกไฟล์ gcloud...");
     let sdk = dir.join("google-cloud-sdk");
+    let _ = std::fs::remove_dir_all(&sdk);
+    extract(&archive, dir)?;
+    prog.finish(W_GCLOUD_EXTRACT);
+
+    prog.begin("กำลังตั้งค่า gcloud...");
     let flags = [
         "--quiet",
         "--usage-reporting=false",
@@ -204,7 +299,65 @@ fn install_gcloud(dir: &Path, say: &dyn Fn(&str)) -> Result<(), String> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
+    prog.finish(W_GCLOUD_SETUP);
     Ok(())
+}
+
+/// Size of the file at `url` (after redirects), if the server says.
+fn content_length(url: &str) -> Option<u64> {
+    let out = Command::new("curl")
+        .args(["-sIL", "--max-time", "20", url])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            if k.trim().eq_ignore_ascii_case("content-length") {
+                v.trim().parse::<u64>().ok()
+            } else {
+                None
+            }
+        })
+        .filter(|n| *n > 0)
+        .last()
+}
+
+/// Downloads with curl and reports how much of the file has arrived (0..1) while it runs.
+fn download_tracked(url: &str, dest: &Path, on_fraction: &dyn Fn(f32)) -> Result<(), String> {
+    let total = content_length(url);
+    let _ = std::fs::remove_file(dest);
+    let mut child = Command::new("curl")
+        .args(["-fL", "--retry", "3", "-sS", "-o"])
+        .arg(dest)
+        .arg(url)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("เรียก curl ไม่สำเร็จ: {e}"))?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {}
+            Err(e) => return Err(format!("ดาวน์โหลดไม่สำเร็จ: {e}")),
+        }
+        if let (Some(t), Ok(meta)) = (total, std::fs::metadata(dest)) {
+            on_fraction(meta.len() as f32 / t as f32);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("ดาวน์โหลดไม่สำเร็จ: {e}"))?;
+    if out.status.success() {
+        on_fraction(1.0);
+        Ok(())
+    } else {
+        Err(format!(
+            "ดาวน์โหลดไม่สำเร็จ: {url}\n{}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
 }
 
 /// Downloads `url` to `dest` with curl (follows redirects, retries).

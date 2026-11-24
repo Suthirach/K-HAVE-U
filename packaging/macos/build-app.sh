@@ -57,10 +57,14 @@ PLIST
 # Ad-hoc signature: lets the app launch on Apple Silicon (not notarized).
 codesign --force --deep --sign - "$APP"
 
-# Disk image: the app, an Applications shortcut (drag to install) and an uninstaller.
+# Disk image: one-click installer, the app (drag also works), an Applications shortcut and an uninstaller.
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
+# One-click installer: copies the app to Applications and opens it (no dragging needed)
+osacompile -o "$STAGE/Install K9s Studio.app" "$ROOT/packaging/macos/Install-K9s-Studio.applescript"
+codesign --force --deep --sign - "$STAGE/Install K9s Studio.app" || true
+cp "$ROOT/packaging/macos/อ่านก่อนติดตั้ง.txt" "$STAGE/"
 # Uninstaller as a real double-click app (no Terminal window)
 osacompile -o "$STAGE/Uninstall K9s Studio.app" "$ROOT/packaging/macos/Uninstall-K9s-Studio.applescript"
 codesign --force --deep --sign - "$STAGE/Uninstall K9s Studio.app" || true

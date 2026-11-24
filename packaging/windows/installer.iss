@@ -22,6 +22,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
+; Shown on the first page of the wizard
+InfoBeforeFile=README-Install.txt
 UninstallDisplayIcon={app}\K9s-Studio.exe
 
 [Languages]
