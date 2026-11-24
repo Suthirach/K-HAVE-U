@@ -96,10 +96,15 @@ target\debug\k9s-ui.exe --scene overview --size 1340x860 --scale 1 --snap overvi
 
 ### ออกเวอร์ชันใหม่ (สำหรับผู้ดูแล)
 
-1. แก้ `version` ใน `Cargo.toml` (เช่น `0.2.0`) แล้ว commit
-2. `git tag v0.2.0 && git push origin v0.2.0` (tag ต้องตรงกับเลขใน `Cargo.toml`)
-3. GitHub Actions ([.github/workflows/build.yml](.github/workflows/build.yml)) จะ build และสร้าง Release พร้อมไฟล์สองตัวด้านบนให้เอง ชื่อไฟล์ห้ามเปลี่ยน เพราะตัวอัปเดตในแอปโหลดตามชื่อนี้
-4. ถ้า repo `rune` เป็น private ให้เพิ่ม secret `RUNE_TOKEN` (Personal Access Token ที่อ่าน repo นั้นได้) ใน Settings ของ repo นี้
+บน Mac รันคำสั่งเดียว (ใส่เลขเวอร์ชันใหม่):
+
+```bash
+./scripts/Release.sh 0.2.0
+```
+
+สคริปต์จะตั้งเลขใน `Cargo.toml`, commit, push, ติด tag (GitHub Actions build `K9s-Studio-Windows-Setup.exe` และสร้าง Release) แล้ว build `K9s-Studio-Mac.dmg` บนเครื่องนี้และอัปโหลดขึ้น Release เดียวกัน ชื่อไฟล์ห้ามเปลี่ยน เพราะตัวอัปเดตในแอปโหลดตามชื่อนี้ ต้องมี `gh` ที่ล็อกอินแล้ว (`brew install gh && gh auth login`)
+
+ถ้า repo `rune` เป็น private ให้เพิ่ม secret `RUNE_TOKEN` (Personal Access Token ที่อ่าน repo นั้นได้) ใน Settings ของ repo นี้
 
 ### สคริปต์สำหรับนักพัฒนา (โฟลเดอร์ `scripts/`)
 
