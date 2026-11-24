@@ -19,6 +19,13 @@ fn poll(s: &mut AppState, t: f64, tx: &mut Tx) -> bool {
     if s.selected_service != selected_before {
         tx.animated();
     }
+    if let Some(left) = ui::topology_g6::deferred_resize_remaining() {
+        if left.is_zero() {
+            ui::topology_g6::sync_webview(s);
+        } else {
+            tx.wake_after(left);
+        }
+    }
     if s.session.is_some() && s.has_any_issue() {
         tx.wake_after(std::time::Duration::from_millis(450));
         let next = ((t * 2.2) as u64) % 2 == 0;
@@ -68,6 +75,17 @@ fn on_key(s: &mut AppState, ev: &KeyEvent, _tx: &mut Tx) -> bool {
 }
 
 fn view(s: &AppState, _cx: &mut Cx<AppState>) -> El {
+    let screen = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!(
+            "{}{:?}{:?}{:?}{}{:?}",
+            s.session.is_some(), s.page, s.tab, s.service_tab, s.active_tab_id, s.selected_service
+        )
+        .hash(&mut h);
+        h.finish()
+    };
+    ui::pill::begin_view(screen);
     let k = ui::theme::warm_dark_kit();
     let base = if s.session.is_some() {
         ui::app_shell(s, k)

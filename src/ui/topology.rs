@@ -903,7 +903,12 @@ fn g6_viewport_host(s: &AppState, fullscreen: bool, k: &Kit) -> El {
                 (0.65, Color::TRANSPARENT),
             ],
         )
-        .drawn_rect_into(&s.g6_viewport_rect)
+        // The laid-out rect, not the drawn one: the native WebView then resizes once to where the
+        // layout lands instead of on every frame of the drawer's slide.
+        .on_layout_tx(|s: &mut AppState, rect, tx| {
+            s.g6_viewport_rect.set(rect);
+            tx.live_only();
+        })
         .child(body);
 
     if fullscreen {

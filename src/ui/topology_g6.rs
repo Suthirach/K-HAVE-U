@@ -683,7 +683,14 @@ pub struct G6WebViewHost {
     last_sig: Option<String>,
     last_selected: Option<Option<String>>,
     failed_init: bool,
+    drawer_open: bool,
+    /// After the service drawer closes, the WebView keeps its narrow bounds until the drawer's
+    /// slide-out has played; the native view would otherwise cover it at once.
+    grow_after: Option<std::time::Instant>,
 }
+
+/// How long the service drawer's exit spring takes (`topology::detail_drawer`).
+const DRAWER_EXIT: std::time::Duration = std::time::Duration::from_millis(300);
 
 impl Default for G6WebViewHost {
     fn default() -> Self {
@@ -701,6 +708,8 @@ impl G6WebViewHost {
             last_sig: None,
             last_selected: None,
             failed_init: false,
+            drawer_open: false,
+            grow_after: None,
         }
     }
 
@@ -794,7 +803,19 @@ impl G6WebViewHost {
             self.visible = true;
         }
 
-        if bounds_changed(self.last_bounds, rect) {
+        let drawer_open = state.selected_service_info().is_some() && !state.diagram_fullscreen;
+        if self.drawer_open && !drawer_open {
+            self.grow_after = Some(std::time::Instant::now() + DRAWER_EXIT);
+        }
+        self.drawer_open = drawer_open;
+        let deferring = self
+            .grow_after
+            .is_some_and(|t| std::time::Instant::now() < t);
+        if !deferring {
+            self.grow_after = None;
+        }
+
+        if !deferring && bounds_changed(self.last_bounds, rect) {
             let bounds = wry_rect(rect);
             if wv.set_bounds(bounds).is_ok() {
                 self.last_bounds = Some(rect);
@@ -893,6 +914,15 @@ pub fn attach_window(handle: WindowHandle) {
 
 pub fn sync_webview(state: &AppState) {
     G6_HOST.with(|host| host.borrow_mut().sync(state));
+}
+
+/// Time left before a WebView resize deferred behind the drawer's exit may apply.
+pub fn deferred_resize_remaining() -> Option<std::time::Duration> {
+    G6_HOST.with(|host| {
+        host.borrow()
+            .grow_after
+            .map(|t| t.saturating_duration_since(std::time::Instant::now()))
+    })
 }
 
 pub fn hide_webview() {

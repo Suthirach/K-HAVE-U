@@ -1,7 +1,45 @@
 use crate::ui::icons::mono_icon;
 use crate::ui::theme;
-use rune::{Color, Cursor, El, Icon, Shadow, TextStyle, Tx, el, row, text};
+use rune::{Color, Cursor, El, Icon, Shadow, Spring, TextStyle, Tx, el, row, text};
 use rune::tok::motion;
+use std::cell::Cell;
+
+// Hover pop: Rune has no hover scale, so the hovered control is tracked here and grows on a
+// bouncy spring. Controls are numbered in build order, which is stable while the screen is.
+thread_local! {
+    static NEXT_ID: Cell<u32> = const { Cell::new(0) };
+    static HOVERED: Cell<Option<u32>> = const { Cell::new(None) };
+    static SCREEN: Cell<u64> = const { Cell::new(0) };
+}
+
+const HOVER_SPRING: Spring = Spring::new(0.34, 0.42);
+const HOVER_PILL: f32 = 1.06;
+const HOVER_ICON: f32 = 1.12;
+const HOVER_CARD: f32 = 1.02;
+
+/// Call at the start of every view with a value identifying the screen; a new screen drops the
+/// hover of a control that was replaced under a still pointer.
+pub fn begin_view(screen: u64) {
+    NEXT_ID.set(0);
+    if SCREEN.replace(screen) != screen {
+        HOVERED.set(None);
+    }
+}
+
+fn hover_pop(e: El, scale: f32) -> El {
+    let id = NEXT_ID.get();
+    NEXT_ID.set(id + 1);
+    let k = if HOVERED.get() == Some(id) { scale } else { 1.0 };
+    e.scale(k)
+        .scale_motion(HOVER_SPRING)
+        .on_hover_change_any(move |inside, _tx| {
+            if inside {
+                HOVERED.set(Some(id));
+            } else if HOVERED.get() == Some(id) {
+                HOVERED.set(None);
+            }
+        })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PillVariant {
@@ -73,7 +111,7 @@ pub fn circle_action_btn<S: 'static>(
     a11y_label: impl Into<String>,
     on_click: impl Fn(&mut S) + 'static,
 ) -> El {
-    el().role("button")
+    let e = el().role("button")
         .label(a11y_label.into())
         .hit()
         .cursor(Cursor::Pointer)
@@ -95,7 +133,8 @@ pub fn circle_action_btn<S: 'static>(
         })
         .motion(motion::SNAPPY)
         .on_press(on_click)
-        .child(mono_icon(ic, 15.0, theme::accent_primary_fg()))
+        .child(mono_icon(ic, 15.0, theme::accent_primary_fg()));
+    hover_pop(e, HOVER_ICON)
 }
 
 /// Compact rounded pill tag matching `.mini-pill` in the visual reference.
@@ -104,7 +143,7 @@ pub fn mini_pill_btn<S: 'static>(
     on_click: impl Fn(&mut S) + 'static,
 ) -> El {
     let label = label.into();
-    row()
+    let e = row()
         .role("button")
         .label(label.clone())
         .hit()
@@ -125,7 +164,8 @@ pub fn mini_pill_btn<S: 'static>(
                 .font(TextStyle::new(11.0, 520.0).tracking(-0.02))
                 .color(theme::text_secondary())
                 .a11y_hidden(),
-        )
+        );
+    hover_pop(e, HOVER_PILL)
 }
 
 /// Rounded status / env / meta pill badge (replaces sharp 2px rectangles).
@@ -159,7 +199,7 @@ const PRESS_ROW: f32 = 0.99;
 
 /// Applies tactile spring hover + bouncy press feedback to any clickable card or tile.
 pub fn interactive(e: El) -> El {
-    interactive_scaled(e, PRESS_CARD)
+    hover_pop(interactive_scaled(e, PRESS_CARD), HOVER_CARD)
 }
 
 /// [`interactive`] for full-width rows (log lines), where a deep bounce would distract.
@@ -258,11 +298,14 @@ fn build_pill(ic: Option<&'static Icon>, label: String, variant: PillVariant, si
         r = r.child(mono_icon(icon_ref, icon_sz, fg));
     }
 
-    r.child(
-        text(label)
-            .font(TextStyle::new(font_sz, 600.0).tracking(-0.08))
-            .color(fg)
-            .a11y_hidden(),
+    hover_pop(
+        r.child(
+            text(label)
+                .font(TextStyle::new(font_sz, 600.0).tracking(-0.08))
+                .color(fg)
+                .a11y_hidden(),
+        ),
+        HOVER_PILL,
     )
 }
 
@@ -274,7 +317,7 @@ fn build_icon_only(ic: &'static Icon, a11y_label: &'static str, variant: PillVar
     };
     let (fill, border_col, fg, _shadow_col, hover_col) = variant_tokens(variant);
 
-    el().role("button")
+    let e = el().role("button")
         .label(a11y_label)
         .hit()
         .cursor(Cursor::Pointer)
@@ -288,7 +331,8 @@ fn build_icon_only(ic: &'static Icon, a11y_label: &'static str, variant: PillVar
         .press_scale(PRESS_ICON)
         .hover_motion(motion::SNAPPY, motion::SNAPPY)
         .motion(motion::SNAPPY)
-        .child(mono_icon(ic, icon_sz, fg))
+        .child(mono_icon(ic, icon_sz, fg));
+    hover_pop(e, HOVER_ICON)
 }
 
 pub fn segmented_group(children: impl IntoIterator<Item = El>) -> El {

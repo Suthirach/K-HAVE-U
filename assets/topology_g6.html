@@ -192,7 +192,7 @@
       transition: transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
-    .search-clear:active {
+    .search-clear:active, .search-clear:hover:active {
       transform: scale(0.78);
       transition-duration: 70ms;
     }
@@ -204,6 +204,7 @@
     .search-clear:hover {
       background: rgba(255, 255, 255, 0.18);
       color: var(--text-strong);
+      transform: scale(1.15);
     }
 
     /* Bottom floating toolbar (Warm Dark Glass Minimal pill dock) */
@@ -258,6 +259,11 @@
       background: rgba(255, 255, 255, 0.13);
       border-color: rgba(255, 255, 255, 0.24);
       color: var(--text-strong);
+      transform: scale(1.07);
+    }
+
+    .hud-btn.icon-btn:hover {
+      transform: scale(1.12);
     }
 
     .hud-btn:active {
@@ -270,7 +276,7 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .hud-btn, .hud-btn:active { transition: none; transform: none; }
+      .hud-btn, .hud-btn:hover, .hud-btn:active, .search-clear, .search-clear:hover, .search-clear:active { transition: none; transform: none; }
     }
 
     .hud-btn.active {
@@ -2570,18 +2576,19 @@
         }
       });
 
-      let resizeTimer = null;
+      // Resize on the next frame (not after a debounce) so a grown WebView never shows a blank strip.
+      let resizeFrame = 0;
       window.addEventListener('resize', () => {
         if (!graph) return;
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
           const container = document.getElementById('mount');
           const w = Math.max(container.clientWidth || window.innerWidth, 100);
           const h = Math.max(container.clientHeight || window.innerHeight, 100);
           try {
             graph.resize(w, h);
           } catch (_) {}
-        }, 40);
+        });
       });
 
       function loadScript(index) {
