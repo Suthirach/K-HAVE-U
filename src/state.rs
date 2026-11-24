@@ -5,8 +5,10 @@ use crate::k8s::{
     spawn_fetch_snapshot, spawn_list_all_namespaces, spawn_restart_deploy, spawn_update_env,
 };
 use crate::pty_k9s::{K9sPty, K9sScreen};
-use rune::TextEdit;
+use crate::ui::topology_g6::{G6Command, TopologyViewMode, TopologyWebEvent};
 use rune::runtime::Waker;
+use rune::{Live, TextEdit};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -87,6 +89,11 @@ pub struct AppState {
     pub diagram_drag_start_x: f32,
     pub diagram_drag_start_y: f32,
     pub diagram_fullscreen: bool,
+    pub topology_mode: TopologyViewMode,
+    pub g6_viewport_rect: Live<[f32; 4]>,
+    pub g6_window_visible: bool,
+    pub g6_ready: Arc<AtomicBool>,
+    pub g6_error: Option<String>,
     pub pulse_on: bool,
     pub logs_pod: Option<String>,
     pub logs_text: Option<String>,
@@ -116,6 +123,10 @@ pub struct AppState {
     pub k8s_rx: mpsc::Receiver<K8sEvent>,
     pub pty_tx: mpsc::Sender<K9sScreen>,
     pub pty_rx: mpsc::Receiver<K9sScreen>,
+    pub g6_tx: mpsc::Sender<TopologyWebEvent>,
+    pub g6_rx: mpsc::Receiver<TopologyWebEvent>,
+    pub g6_cmd_tx: mpsc::Sender<G6Command>,
+    pub g6_cmd_rx: mpsc::Receiver<G6Command>,
 }
 
 impl AppState {
@@ -123,6 +134,8 @@ impl AppState {
         let (auth_tx, auth_rx) = mpsc::channel();
         let (k8s_tx, k8s_rx) = mpsc::channel();
         let (pty_tx, pty_rx) = mpsc::channel();
+        let (g6_tx, g6_rx) = mpsc::channel();
+        let (g6_cmd_tx, g6_cmd_rx) = mpsc::channel();
         let (stg_namespaces, prod_namespaces) = load_saved_namespaces();
         let (open_tabs, active_tab_id, next_tab_id) = load_saved_tabs(&stg_namespaces);
         let active_tab = open_tabs
@@ -169,6 +182,11 @@ impl AppState {
             diagram_drag_start_x: 24.0,
             diagram_drag_start_y: 20.0,
             diagram_fullscreen: false,
+            topology_mode: TopologyViewMode::G6,
+            g6_viewport_rect: Live::new([0.0; 4]),
+            g6_window_visible: true,
+            g6_ready: Arc::new(AtomicBool::new(false)),
+            g6_error: None,
             pulse_on: true,
             logs_pod: None,
             logs_text: None,
@@ -194,6 +212,10 @@ impl AppState {
             k8s_rx,
             pty_tx,
             pty_rx,
+            g6_tx,
+            g6_rx,
+            g6_cmd_tx,
+            g6_cmd_rx,
         }
     }
 
@@ -230,6 +252,7 @@ impl AppState {
         self.k9s_screen = K9sScreen::default();
         self.session = None;
         self.banner = None;
+        self.diagram_fullscreen = false;
         self.page = Page::Overview;
     }
 
@@ -706,6 +729,10 @@ impl AppState {
             || self.snapshot.services.iter().any(|svc| svc.health != crate::k8s::Health::Healthy)
     }
 
+    pub fn send_g6_cmd(&self, cmd: G6Command) {
+        let _ = self.g6_cmd_tx.send(cmd);
+    }
+
     pub fn selected_service_info(&self) -> Option<&ServiceInfo> {
         let name = self.selected_service.as_deref()?;
         self.snapshot.services.iter().find(|s| s.name == name)
@@ -767,6 +794,31 @@ impl AppState {
         while let Ok(screen) = self.pty_rx.try_recv() {
             changed = true;
             self.k9s_screen = screen;
+        }
+        while let Ok(ev) = self.g6_rx.try_recv() {
+            changed = true;
+            match ev {
+                TopologyWebEvent::Ready => {
+                    self.g6_ready.store(true, Ordering::Release);
+                    self.g6_error = None;
+                }
+                TopologyWebEvent::SelectService { name } => {
+                    self.selected_service = Some(name);
+                }
+                TopologyWebEvent::DrillService { name } => {
+                    self.diagram_fullscreen = false;
+                    self.drill_into_service(name, ServiceTab::Info);
+                }
+                TopologyWebEvent::ClearSelection => {
+                    self.selected_service = None;
+                }
+                TopologyWebEvent::ExitFullscreen => {
+                    self.diagram_fullscreen = false;
+                }
+                TopologyWebEvent::LoadError { message } => {
+                    self.g6_error = Some(message);
+                }
+            }
         }
         changed
     }

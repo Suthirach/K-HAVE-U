@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>K9s Studio — Cluster Topology (AntV G6 v5)</title>
+  <style>
+    :root {
+      --bg-top: #1d103b;
+      --bg-mid: #100c22;
+      --bg-bot: #080b14;
+      --panel-bg: rgba(18, 15, 36, 0.92);
+      --panel-border: rgba(139, 92, 246, 0.42);
+      --text-strong: #f8fafc;
+      --text-base: #cbd5e1;
+      --text-muted: #94a3b8;
+      --accent-purple: #a855f7;
+      --accent-cyan: #38bdf8;
+      --accent-gold: #f59e0b;
+      --health-ok: #22c55e;
+      --health-warn: #f59e0b;
+      --health-err: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 22% 12%, #2b125d 0%, #110d24 44%, #070a12 100%);
+      color: var(--text-strong);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", sans-serif;
+    }
+
+    #mount {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background-image:
+        radial-gradient(rgba(167, 139, 250, 0.13) 1px, transparent 1px);
+      background-size: 26px 26px;
+    }
+
+    /* Top bar: cluster summary + legend + spotlight search */
+    .hud-top {
+      position: fixed;
+      top: 12px;
+      left: 14px;
+      right: 14px;
+      z-index: 25;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      pointer-events: none;
+    }
+
+    .hud-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      pointer-events: none;
+    }
+
+    .hud-pill {
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+      font-size: 11.5px;
+      color: var(--text-base);
+    }
+
+    .hud-pill strong {
+      color: var(--text-strong);
+      font-weight: 600;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    .search-box {
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(18, 15, 36, 0.95);
+      border: 1px solid rgba(168, 85, 247, 0.48);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.48);
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .search-box:focus-within {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25), 0 10px 28px rgba(0, 0, 0, 0.55);
+    }
+
+    .search-box input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #f8fafc;
+      font-size: 12px;
+      width: 210px;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    .search-box input::placeholder {
+      color: #94a3b8;
+    }
+
+    .search-count {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(245, 158, 11, 0.2);
+      color: #fde68a;
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      display: none;
+    }
+
+    .search-count.visible {
+      display: inline-block;
+    }
+
+    .search-count.empty {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fecaca;
+      border-color: rgba(239, 68, 68, 0.45);
+    }
+
+    .search-clear {
+      appearance: none;
+      border: none;
+      background: rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      font-size: 11px;
+      line-height: 18px;
+      text-align: center;
+      padding: 0;
+      cursor: pointer;
+      display: none;
+    }
+
+    .search-clear.visible {
+      display: inline-block;
+    }
+
+    .search-clear:hover {
+      background: rgba(239, 68, 68, 0.35);
+      color: #ffffff;
+    }
+
+    /* Bottom floating toolbar (centered G6 5.0 style) */
+    .hud-bottom-dock {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      z-index: 25;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(16, 14, 32, 0.94);
+      border: 1px solid rgba(168, 85, 247, 0.48);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.56);
+      max-width: calc(100vw - 28px);
+      overflow-x: auto;
+    }
+
+    .hud-btn {
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-strong);
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+    }
+
+    .hud-btn:hover {
+      background: rgba(168, 85, 247, 0.24);
+      border-color: rgba(192, 132, 252, 0.7);
+    }
+
+    .hud-btn:active {
+      transform: scale(0.96);
+    }
+
+    .hud-btn.active {
+      background: linear-gradient(180deg, #7c3aed, #5b21b6);
+      border-color: #c4b5fd;
+      color: #ffffff;
+    }
+
+    .hud-sep {
+      width: 1px;
+      height: 16px;
+      background: rgba(255, 255, 255, 0.14);
+      margin: 0 2px;
+      flex-shrink: 0;
+    }
+
+    #zoom-readout {
+      min-width: 44px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #e9d5ff;
+    }
+
+    #status-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(8, 11, 20, 0.86);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    #status-overlay.hidden {
+      display: none;
+    }
+
+    .status-card {
+      max-width: 460px;
+      padding: 20px 24px;
+      border-radius: 16px;
+      background: #141126;
+      border: 1px solid rgba(168, 85, 247, 0.48);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6);
+      text-align: center;
+    }
+
+    .status-card h3 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+      color: #f8fafc;
+    }
+
+    .status-card p {
+      margin: 0;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #94a3b8;
+    }
+
+    /* High-contrast Dark Theme override for BOTH `.tooltip` (G6 v5 default class) and `.g6-tooltip` */
+    .tooltip,
+    .g6-tooltip,
+    .k9s-dark-tooltip {
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      color: #f8fafc !important;
+      pointer-events: none !important;
+      z-index: 80 !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="mount"></div>
+
+  <div class="hud-top">
+    <div class="hud-group">
+      <div class="hud-pill" id="meta-pill">
+        <span class="legend-dot" style="background:#a855f7;"></span>
+        <strong id="meta-ns">Loading topology…</strong>
+        <span id="meta-counts" style="color:#94a3b8;"></span>
+      </div>
+      <div class="hud-pill">
+        <span class="legend-dot" style="background:#22c55e;"></span><span>Healthy</span>
+        <span class="legend-dot" style="background:#f59e0b;margin-left:4px;"></span><span>Warning</span>
+        <span class="legend-dot" style="background:#ef4444;margin-left:4px;"></span><span>Error</span>
+        <span class="legend-dot" style="background:#38bdf8;margin-left:4px;"></span><span>Ingress</span>
+        <span class="legend-dot" style="background:#c084fc;margin-left:4px;"></span><span>Cache/DB</span>
+      </div>
+    </div>
+
+    <div class="search-box">
+      <span style="font-size:12px;color:#a78bfa;">🔍</span>
+      <input
+        id="filter-input"
+        type="text"
+        placeholder="Search service, host, port… (Enter to focus)"
+        autocomplete="off"
+      />
+      <span id="search-count" class="search-count"></span>
+      <button id="search-clear" class="search-clear" title="Clear search (Esc)">✕</button>
+    </div>
+  </div>
+
+  <div class="hud-bottom-dock">
+    <button class="hud-btn active" id="btn-layout-network" title="Spacious G6 5.0 Hub-and-Spoke Force Network">Network</button>
+    <button class="hud-btn" id="btn-layout-zones" title="Non-overlapping 3-Cluster Zones">Zones</button>
+    <button class="hud-btn" id="btn-layout-dagre" title="Dagre Hierarchical Flow">Dagre</button>
+    <div class="hud-sep"></div>
+    <button class="hud-btn active" id="btn-edge-curve" title="Smooth curved edges">Curves</button>
+    <button class="hud-btn" id="btn-edge-poly" title="Orthogonal polyline edges">Polyline</button>
+    <div class="hud-sep"></div>
+    <button class="hud-btn" id="btn-zoom-out" title="Zoom out">−</button>
+    <span id="zoom-readout">100%</span>
+    <button class="hud-btn" id="btn-zoom-in" title="Zoom in">+</button>
+    <button class="hud-btn" id="btn-fit" title="Fit topology to viewport">Fit</button>
+    <button class="hud-btn" id="btn-reset" title="Reset search, selection, and viewport">Reset</button>
+  </div>
+
+  <div id="status-overlay">
+    <div class="status-card">
+      <h3 id="status-title">Loading AntV G6 v5…</h3>
+      <p id="status-body">Initializing interactive cluster topology engine.</p>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const CDN_URLS = [
+        'https://unpkg.com/@antv/g6@5/dist/g6.min.js',
+        'https://cdn.jsdelivr.net/npm/@antv/g6@5/dist/g6.min.js'
+      ];
+
+      let graph = null;
+      let currentPayload = null;
+      let currentSelectedService = null;
+      let edgeMode = 'quadratic';   // 'quadratic' | 'polyline'
+      let layoutMode = 'network';   // 'network' | 'zones' | 'dagre'
+      let searchQuery = '';
+      let lastMatchIds = [];
+      let matchCursor = 0;
+      let g6Loaded = false;
+      let customNodeRegistered = false;
+      let searchDebounce = null;
+      let focusSeq = 0;
+
+      const statusOverlay = document.getElementById('status-overlay');
+      const statusTitle = document.getElementById('status-title');
+      const statusBody = document.getElementById('status-body');
+      const zoomReadout = document.getElementById('zoom-readout');
+      const metaNs = document.getElementById('meta-ns');
+      const metaCounts = document.getElementById('meta-counts');
+      const filterInput = document.getElementById('filter-input');
+      const searchCountEl = document.getElementById('search-count');
+      const searchClearBtn = document.getElementById('search-clear');
+
+      function postIpc(msg) {
+        try {
+          if (window.ipc && typeof window.ipc.postMessage === 'function') {
+            window.ipc.postMessage(JSON.stringify(msg));
+          }
+        } catch (err) {
+          console.warn('IPC postMessage failed:', err);
+        }
+      }
+
+      function escapeHtml(str) {
+        return String(str == null ? '' : str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function truncate(str, maxLen) {
+        const s = String(str || '');
+        return s.length > maxLen ? s.slice(0, maxLen - 1) + '…' : s;
+      }
+
+      function formatPortBadge(ports) {
+        const raw = String(ports || '').trim();
+        if (!raw || raw === '-') return '';
+        const list = raw
+          .split(',')
+          .map(p => p.trim().replace(/^:/, ''))
+          .filter(Boolean);
+        if (!list.length) return '';
+        if (list.length === 1) return ':' + truncate(list[0], 8);
+        const joined = ':' + list.join(',');
+        if (joined.length <= 10) return joined;
+        return ':' + truncate(list[0], 5) + ' +' + (list.length - 1);
+      }
+
+      function healthColors(health) {
+        if (health === 'error') {
+          return { dot: '#ef4444', border: '#ef4444', badgeBg: '#450a0a', badgeStroke: '#ef4444', badgeFg: '#fecaca', label: 'ERROR' };
+        }
+        if (health === 'warning') {
+          return { dot: '#f59e0b', border: '#f59e0b', badgeBg: '#451a03', badgeStroke: '#f59e0b', badgeFg: '#fde68a', label: 'WARN' };
+        }
+        if (health === 'external') {
+          return { dot: '#94a3b8', border: '#64748b', badgeBg: '#1e293b', badgeStroke: '#64748b', badgeFg: '#cbd5e1', label: 'EXT' };
+        }
+        return { dot: '#22c55e', border: '#22c55e', badgeBg: '#052e16', badgeStroke: '#22c55e', badgeFg: '#86efac', label: 'HEALTHY' };
+      }
+
+      function registerK8sCardNode() {
+        if (customNodeRegistered || !window.G6) return;
+        const { Rect, register, ExtensionCategory } = window.G6;
+        if (!Rect || !register || !ExtensionCategory) return;
+
+        /**
+         * Custom G6 v5 Rect card node where accent stripe, pod status pill, and port/role pill
+         * are rendered strictly INSIDE the card bounds (zero drifting external badges) and
+         * all inner text/pills obey `labelOpacity` so search spotlight hides non-match text cleanly.
+         */
+        class K8sCardNode extends Rect {
+          render(attributes = this.parsedAttributes, container) {
+            super.render(attributes, container);
+            const size = Array.isArray(attributes.size) ? attributes.size : [224, 68];
+            const w = size[0] || 224;
+            const h = size[1] || 68;
+            const halfW = w / 2;
+            const halfH = h / 2;
+            const textOpacity = typeof attributes.labelOpacity === 'number' ? attributes.labelOpacity : 1;
+            const visible = textOpacity > 0.02;
+
+            // Left status accent stripe inside the card
+            const accentColor = attributes.accentColor || '#6366f1';
+            const isCompactPill = h <= 50;
+            this.upsert(
+              'k8s-accent',
+              'rect',
+              {
+                x: -halfW + (isCompactPill ? 13 : 7),
+                y: -halfH + (isCompactPill ? 11 : 10),
+                width: 4,
+                height: Math.max(h - (isCompactPill ? 22 : 20), 12),
+                radius: 2,
+                fill: accentColor,
+                opacity: visible ? Math.max(textOpacity, 0.25) : 0.16,
+              },
+              container
+            );
+
+            // Compute strictly non-overlapping widths inside [-halfW + 18, halfW - 12]
+            const leftPadX = 18;
+            const rightPadX = 12;
+            const innerW = Math.max(w - leftPadX - rightPadX, 80);
+            const minGap = 8;
+
+            // Bottom-left status pill (e.g. "● 1/1 Pods" or "3 routes")
+            const leftText = attributes.leftBadgeText || '';
+            const showLeft = visible && leftText.length > 0;
+            // Bottom-right port / role pill (e.g. ":3010", ":6379", "Worker", "5 links")
+            const rightText = attributes.rightBadgeText || '';
+            const showRight = visible && rightText.length > 0;
+
+            let leftW = showLeft ? Math.max(leftText.length * 6.0 + 16, 54) : 0;
+            let rightW = showRight ? Math.max(rightText.length * 6.1 + 16, 44) : 0;
+            if (showLeft && showRight) {
+              const budget = innerW - minGap;
+              if (leftW + rightW > budget) {
+                const scale = budget / (leftW + rightW);
+                leftW = Math.floor(leftW * scale);
+                rightW = Math.floor(budget - leftW);
+              }
+            } else if (showLeft) {
+              leftW = Math.min(leftW, innerW);
+            } else if (showRight) {
+              rightW = Math.min(rightW, innerW);
+            }
+
+            this.upsert(
+              'k8s-left-pill-bg',
+              'rect',
+              showLeft
+                ? {
+                    x: -halfW + leftPadX,
+                    y: halfH - 25,
+                    width: leftW,
+                    height: 18,
+                    radius: 9,
+                    fill: attributes.leftBadgeBg || '#052e16',
+                    stroke: attributes.leftBadgeStroke || '#22c55e',
+                    lineWidth: 0.9,
+                    opacity: textOpacity,
+                  }
+                : false,
+              container
+            );
+            this.upsert(
+              'k8s-left-pill-text',
+              'text',
+              showLeft
+                ? {
+                    x: -halfW + leftPadX + leftW / 2,
+                    y: halfH - 16,
+                    text: leftText,
+                    fill: attributes.leftBadgeFg || '#86efac',
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, Inter, sans-serif',
+                    textAlign: 'center',
+                    textBaseline: 'middle',
+                    opacity: textOpacity,
+                  }
+                : false,
+              container
+            );
+
+            this.upsert(
+              'k8s-right-pill-bg',
+              'rect',
+              showRight
+                ? {
+                    x: halfW - rightW - rightPadX,
+                    y: halfH - 25,
+                    width: rightW,
+                    height: 18,
+                    radius: 9,
+                    fill: attributes.rightBadgeBg || 'rgba(148, 163, 184, 0.14)',
+                    stroke: attributes.rightBadgeStroke || 'rgba(148, 163, 184, 0.35)',
+                    lineWidth: 0.9,
+                    opacity: textOpacity,
+                  }
+                : false,
+              container
+            );
+            this.upsert(
+              'k8s-right-pill-text',
+              'text',
+              showRight
+                ? {
+                    x: halfW - rightW / 2 - rightPadX,
+                    y: halfH - 16,
+                    text: rightText,
+                    fill: attributes.rightBadgeFg || '#e2e8f0',
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, Inter, sans-serif',
+                    textAlign: 'center',
+                    textBaseline: 'middle',
+                    opacity: textOpacity,
+                  }
+                : false,
+              container
+            );
+          }
+        }
+
+        register(ExtensionCategory.NODE, 'k8s-card', K8sCardNode);
+        customNodeRegistered = true;
+      }
+
+      function nodeVisual(n) {
+        const data = n.data || {};
+        const kind = data.kind || 'api';
+        const hc = healthColors(data.health || 'healthy');
+
+        if (kind === 'switch') {
+          return {
+            size: [196, 68],
+            radius: 16,
+            fill: '#311266',
+            fillOpacity: 1,
+            stroke: '#c4b5fd',
+            strokeOpacity: 1,
+            lineWidth: 2,
+            zIndex: 1,
+            shadowColor: 'rgba(168, 85, 247, 0.42)',
+            shadowBlur: 18,
+            accentColor: '#c084fc',
+            labelText: '⇄ ' + truncate(data.label || 'Nginx Ingress', 17),
+            labelFill: '#ffffff',
+            labelFontSize: 12.5,
+            labelFontWeight: 700,
+            labelPlacement: 'center',
+            labelOffsetX: 4,
+            labelOffsetY: -12,
+            labelOpacity: 1,
+            leftBadgeText: data.badge || '0 routes',
+            leftBadgeBg: '#1e1b4b',
+            leftBadgeStroke: '#a855f7',
+            leftBadgeFg: '#e9d5ff',
+            rightBadgeText: ':80/443',
+            rightBadgeBg: 'rgba(56, 189, 248, 0.16)',
+            rightBadgeStroke: 'rgba(56, 189, 248, 0.45)',
+            rightBadgeFg: '#bae6fd',
+          };
+        }
+
+        if (kind === 'domain') {
+          return {
+            size: [244, 46],
+            radius: 23,
+            fill: '#111d3a',
+            fillOpacity: 1,
+            stroke: '#38bdf8',
+            strokeOpacity: 1,
+            lineWidth: 1.5,
+            zIndex: 1,
+            shadowColor: 'rgba(56, 189, 248, 0.2)',
+            shadowBlur: 10,
+            accentColor: '#38bdf8',
+            labelText: '🌐 ' + truncate(data.label || '', 25),
+            labelFill: '#e0f2fe',
+            labelFontSize: 11.5,
+            labelFontWeight: 600,
+            labelPlacement: 'center',
+            labelOffsetX: 6,
+            labelOffsetY: 0,
+            labelOpacity: 1,
+            leftBadgeText: '',
+            rightBadgeText: '',
+          };
+        }
+
+        if (kind === 'cache') {
+          const fanIn = data.fanIn || 0;
+          const hasIssue = data.health && data.health !== 'healthy' && data.health !== 'external';
+          const portBadge = formatPortBadge(data.ports);
+          const rightBadgeText = portBadge
+            ? (fanIn > 0 ? `${portBadge} · ${fanIn}` : portBadge)
+            : (fanIn > 0 ? `${fanIn} links` : 'Cache');
+
+          return {
+            size: [224, 68],
+            radius: 14,
+            fill: '#231044',
+            fillOpacity: 1,
+            stroke: hasIssue ? hc.border : '#c084fc',
+            strokeOpacity: 1,
+            lineWidth: hasIssue ? 2.4 : 1.7,
+            zIndex: 1,
+            shadowColor: hasIssue ? hc.border : 'rgba(192, 132, 252, 0.3)',
+            shadowBlur: 14,
+            accentColor: hasIssue ? hc.dot : '#c084fc',
+            labelText: '🗄 ' + truncate(data.label || '', 20),
+            labelFill: '#faf5ff',
+            labelFontSize: 12,
+            labelFontWeight: 700,
+            labelPlacement: 'center',
+            labelOffsetX: 4,
+            labelOffsetY: -12,
+            labelOpacity: 1,
+            leftBadgeText: data.podBadge ? ('● ' + data.podBadge) : '● Cache',
+            leftBadgeBg: hc.badgeBg,
+            leftBadgeStroke: hc.badgeStroke,
+            leftBadgeFg: hc.badgeFg,
+            rightBadgeText,
+            rightBadgeBg: '#3b0764',
+            rightBadgeStroke: '#c084fc',
+            rightBadgeFg: '#f3e8ff',
+          };
+        }
+
+        // API or Worker node
+        const isWorker = kind === 'worker';
+        const hasIssue = data.health && data.health !== 'healthy';
+        const icon = isWorker ? '⏱ ' : '⚙ ';
+        const fill = isWorker ? '#181c36' : '#13192d';
+        const stroke = hasIssue ? hc.border : (isWorker ? '#818cf8' : '#6366f1');
+        const portBadge = formatPortBadge(data.ports);
+        const rightBadgeText = isWorker
+          ? (portBadge || 'Worker')
+          : (portBadge || 'API');
+
+        return {
+          size: [224, 68],
+          radius: 14,
+          fill,
+          fillOpacity: 1,
+          stroke,
+          strokeOpacity: 1,
+          lineWidth: hasIssue ? 2.4 : 1.5,
+          zIndex: 1,
+          shadowColor: hasIssue ? hc.border : 'rgba(0, 0, 0, 0.45)',
+          shadowBlur: hasIssue ? 16 : 10,
+          accentColor: hc.dot,
+          labelText: icon + truncate(data.label || '', 20),
+          labelFill: '#f8fafc',
+          labelFontSize: 12,
+          labelFontWeight: 700,
+          labelPlacement: 'center',
+          labelOffsetX: 4,
+          labelOffsetY: -12,
+          labelOpacity: 1,
+          leftBadgeText: '● ' + (data.podBadge || '0/0 Pods'),
+          leftBadgeBg: hc.badgeBg,
+          leftBadgeStroke: hc.badgeStroke,
+          leftBadgeFg: hc.badgeFg,
+          rightBadgeText,
+          rightBadgeBg: isWorker ? 'rgba(129, 140, 248, 0.16)' : 'rgba(56, 189, 248, 0.14)',
+          rightBadgeStroke: isWorker ? 'rgba(129, 140, 248, 0.45)' : 'rgba(56, 189, 248, 0.4)',
+          rightBadgeFg: isWorker ? '#c7d2fe' : '#bae6fd',
+        };
+      }
+
+      function buildPreparedData(payload) {
+        const raw = payload.data || { nodes: [], edges: [], combos: [] };
+        const useCombos = layoutMode === 'zones';
+        const totalDepEdges = raw.edges.filter(e => e.data && e.data.kind === 'service-dep').length;
+
+        const combos = useCombos
+          ? (raw.combos || []).map(c => ({
+              id: c.id,
+              type: 'rect',
+              data: c.data || {},
+              style: {
+                padding: [68, 36, 36, 36],
+                radius: 20,
+                fill: (c.data && c.data.fill) || 'rgba(255, 255, 255, 0.03)',
+                fillOpacity: 1,
+                stroke: (c.data && c.data.stroke) || 'rgba(196, 181, 253, 0.35)',
+                strokeOpacity: 1,
+                lineWidth: 1.5,
+                lineDash: [6, 5],
+                labelText: (c.data && c.data.label) || c.id,
+                labelFill: '#f8fafc',
+                labelFontSize: 11.5,
+                labelFontWeight: 700,
+                labelPlacement: 'top',
+                labelOffsetY: 22,
+                labelOpacity: 1,
+                labelBackground: true,
+                labelBackgroundOpacity: 1,
+                labelBackgroundFill: '#1a1536',
+                labelBackgroundStroke: (c.data && c.data.stroke) || '#7c3aed',
+                labelBackgroundLineWidth: 1,
+                labelBackgroundRadius: 999,
+                labelPadding: [5, 14],
+              }
+            }))
+          : [];
+
+        const nodes = (raw.nodes || []).map((n, idx) => {
+          const vis = nodeVisual(n);
+          const style = Object.assign({}, vis);
+          if (layoutMode === 'zones' && typeof n.x === 'number' && typeof n.y === 'number') {
+            style.x = n.x;
+            style.y = n.y;
+          } else if (layoutMode === 'network') {
+            // Seed deterministic spacious hub-and-spoke initial positions before d3-force settles
+            const kind = (n.data && n.data.kind) || 'api';
+            const angle = (idx * 2.39996) % (Math.PI * 2);
+            const ring = 140 + (idx % 5) * 65;
+            if (kind === 'switch') {
+              style.x = -560;
+              style.y = 0;
+            } else if (kind === 'domain') {
+              style.x = -260 + Math.cos(angle) * 70;
+              style.y = Math.sin(angle) * 260;
+            } else if (kind === 'api') {
+              style.x = 120 + Math.cos(angle) * ring;
+              style.y = Math.sin(angle) * ring;
+            } else {
+              style.x = 560 + Math.cos(angle) * 140;
+              style.y = Math.sin(angle) * 220;
+            }
+          }
+          return {
+            id: n.id,
+            combo: useCombos ? (n.combo || undefined) : undefined,
+            type: customNodeRegistered ? 'k8s-card' : 'rect',
+            data: n.data || {},
+            style,
+          };
+        });
+
+        const edges = (raw.edges || []).map(e => {
+          const ed = e.data || {};
+          const kind = ed.kind || 'service-dep';
+          const isIngress = kind === 'ingress-switch' || kind === 'ingress-route';
+          const highFanIn = !isIngress && (ed.targetFanIn >= 6 || totalDepEdges >= 12);
+          const baseStroke = isIngress ? '#38bdf8' : '#c084fc';
+          const baseOpacity = isIngress ? 0.65 : (highFanIn ? 0.34 : 0.56);
+          const edgeType = edgeMode === 'polyline' ? 'polyline' : 'quadratic';
+
+          const style = {
+            stroke: baseStroke,
+            strokeOpacity: baseOpacity,
+            lineWidth: isIngress ? 1.6 : (highFanIn ? 1.25 : 1.5),
+            endArrow: true,
+            endArrowType: 'vee',
+            endArrowSize: 7,
+            endArrowFill: baseStroke,
+          };
+
+          if (edgeType === 'quadratic') {
+            style.curveOffset = typeof ed.curveOffset === 'number' ? ed.curveOffset : (isIngress ? -18 : 26);
+          } else {
+            style.router = { type: 'orth' };
+            style.radius = 10;
+          }
+
+          return {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            type: edgeType,
+            data: ed,
+            style,
+          };
+        });
+
+        return { nodes, edges, combos };
+      }
+
+      /**
+       * High-contrast dark glass tooltip card with inline styles so G6 v5's default light
+       * `.tooltip` styling can never bleed white-on-white.
+       */
+      function renderTooltipContent(event, items) {
+        if (!items || !items.length) return '';
+        const item = items[0];
+        if (!item) return '';
+        const d = item.data || {};
+
+        const cardStyle = [
+          'background:rgba(20,17,38,0.97)',
+          'border:1px solid rgba(139,92,246,0.55)',
+          'border-radius:12px',
+          'padding:12px 14px',
+          'min-width:240px',
+          'max-width:340px',
+          'color:#f8fafc',
+          'font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,sans-serif',
+          'font-size:12px',
+          'box-shadow:0 16px 40px rgba(0,0,0,0.68)',
+          'backdrop-filter:blur(12px)',
+          '-webkit-backdrop-filter:blur(12px)',
+        ].join(';');
+
+        const headerStyle = 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;';
+        const titleStyle = 'font-weight:700;font-size:13px;color:#f8fafc;word-break:break-word;';
+        const metaStyle = 'display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px;margin-top:6px;';
+        const lblStyle = 'color:#94a3b8;font-weight:500;';
+        const valStyle = 'color:#f8fafc;font-weight:500;word-break:break-word;';
+        const summaryStyle = 'margin-top:9px;padding-top:8px;border-top:1px solid rgba(148,163,184,0.18);font-size:11.5px;color:#cbd5e1;line-height:1.45;';
+        const hintStyle = 'margin-top:7px;font-size:10.5px;color:#c4b5fd;font-weight:600;';
+
+        if (item.source && item.target) {
+          return `
+            <div style="${cardStyle}">
+              <div style="${headerStyle}">
+                <span style="${titleStyle}">${escapeHtml(d.label || 'Connection')}</span>
+                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#2e1065;color:#e9d5ff;border:1px solid rgba(168,85,247,0.5);">${escapeHtml(d.kind || 'EDGE')}</span>
+              </div>
+              <div style="${metaStyle}">
+                <span style="${lblStyle}">From</span><span style="${valStyle}">${escapeHtml(d.sourceLabel || item.source)}</span>
+                <span style="${lblStyle}">To</span><span style="${valStyle}">${escapeHtml(d.targetLabel || item.target)}</span>
+                ${d.path ? `<span style="${lblStyle}">Path</span><span style="${valStyle}">${escapeHtml(d.path)}</span>` : ''}
+              </div>
+            </div>
+          `;
+        }
+
+        if (d.isCombo) {
+          return `
+            <div style="${cardStyle}">
+              <div style="${headerStyle}">
+                <span style="${titleStyle}">${escapeHtml(d.label || item.id)}</span>
+                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:#312e81;color:#e0e7ff;">ZONE</span>
+              </div>
+              <div style="${summaryStyle}">${escapeHtml(d.description || 'Cluster zone container')}</div>
+            </div>
+          `;
+        }
+
+        const hc = healthColors(d.health || 'healthy');
+        const badgeStyle = `font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${hc.badgeBg};color:${hc.badgeFg};border:1px solid ${hc.badgeStroke};flex-shrink:0;`;
+
+        const rows = [
+          `<span style="${lblStyle}">Role</span><span style="${valStyle}">${escapeHtml(d.roleLabel || d.kind || 'Service')}</span>`,
+        ];
+        if (d.podBadge) {
+          rows.push(`<span style="${lblStyle}">Pods</span><span style="${valStyle}">${escapeHtml(d.podBadge)}</span>`);
+        }
+        if (d.ports && d.ports !== '-') {
+          rows.push(`<span style="${lblStyle}">Ports</span><span style="color:#7dd3fc;font-weight:600;">${escapeHtml(d.ports)}</span>`);
+        }
+        if (d.fanIn > 0) {
+          rows.push(`<span style="${lblStyle}">Inbound</span><span style="color:#e9d5ff;font-weight:600;">${d.fanIn} connected services</span>`);
+        }
+        if (d.hosts && d.hosts.length) {
+          rows.push(`<span style="${lblStyle}">Domains</span><span style="color:#7dd3fc;word-break:break-all;">${d.hosts.map(escapeHtml).join('<br/>')}</span>`);
+        }
+        if (d.connectsTo && d.connectsTo.length) {
+          rows.push(`<span style="${lblStyle}">Connects To</span><span style="${valStyle}">${d.connectsTo.map(escapeHtml).join(', ')}</span>`);
+        }
+
+        return `
+          <div style="${cardStyle}">
+            <div style="${headerStyle}">
+              <span style="${titleStyle}">${escapeHtml(d.fullName || d.label || item.id)}</span>
+              <span style="${badgeStyle}">${hc.label}</span>
+            </div>
+            <div style="${metaStyle}">${rows.join('')}</div>
+            ${d.summary ? `<div style="${summaryStyle}">${escapeHtml(d.summary)}</div>` : ''}
+            ${d.serviceName ? `<div style="${hintStyle}">Click to inspect • Double-click for ENV / Logs / Spec</div>` : ''}
+          </div>
+        `;
+      }
+
+      function updateZoomReadout() {
+        if (!graph) return;
+        try {
+          const z = graph.getZoom();
+          if (typeof z === 'number' && isFinite(z)) {
+            zoomReadout.textContent = Math.round(z * 100) + '%';
+          }
+        } catch (_) {}
+      }
+
+      function findMatchingNodes(query) {
+        if (!currentPayload || !query) return [];
+        const q = query.trim().toLowerCase();
+        if (!q) return [];
+        const nodes = currentPayload.data.nodes || [];
+        const matched = [];
+        for (const n of nodes) {
+          const d = n.data || {};
+          const ports = d.ports && d.ports !== '-' ? d.ports : '';
+          const portTokens = ports
+            ? [
+                ports,
+                ...ports
+                  .split(/[,/\s]+/)
+                  .map(p => p.trim())
+                  .filter(Boolean)
+                  .map(p => ':' + p),
+              ].join(' ')
+            : '';
+          const switchPorts = d.kind === 'switch' ? ':80 :443 :80/443' : '';
+          const hay = [
+            d.fullName || '',
+            d.label || '',
+            d.serviceName || '',
+            d.roleLabel || '',
+            d.podBadge || '',
+            d.badge || '',
+            portTokens,
+            switchPorts,
+            (d.hosts || []).join(' '),
+          ].join(' ').toLowerCase();
+          if (hay.includes(q)) {
+            matched.push(n.id);
+          }
+        }
+        return matched;
+      }
+
+      async function focusMatchedNodes(ids) {
+        if (!graph || !ids || !ids.length) return;
+        const seq = ++focusSeq;
+        try {
+          if (ids.length === 1) {
+            await graph.focusElement(ids[0], { duration: 380, easing: 'ease-out' });
+            if (seq !== focusSeq || !graph) return;
+            const curZ = graph.getZoom();
+            if (typeof curZ === 'number' && curZ < 1.05) {
+              await graph.zoomTo(1.12, { duration: 260, easing: 'ease-out' });
+            }
+          } else {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const id of ids) {
+              try {
+                const pos = graph.getElementPosition(id);
+                if (Array.isArray(pos) && isFinite(pos[0]) && isFinite(pos[1])) {
+                  minX = Math.min(minX, pos[0] - 130);
+                  minY = Math.min(minY, pos[1] - 44);
+                  maxX = Math.max(maxX, pos[0] + 130);
+                  maxY = Math.max(maxY, pos[1] + 44);
+                }
+              } catch (_) {}
+            }
+            await graph.focusElement(ids, { duration: 380, easing: 'ease-out' });
+            if (seq !== focusSeq || !graph) return;
+            if (isFinite(minX) && maxX > minX && maxY > minY) {
+              const container = document.getElementById('mount');
+              const vw = Math.max((container && container.clientWidth) || window.innerWidth || 800, 200);
+              const vh = Math.max((container && container.clientHeight) || window.innerHeight || 500, 200);
+              const fitZ = Math.min((vw - 140) / (maxX - minX), (vh - 170) / (maxY - minY));
+              const targetZ = Math.max(0.45, Math.min(1.12, fitZ));
+              if (isFinite(targetZ)) {
+                await graph.zoomTo(targetZ, { duration: 260, easing: 'ease-out' });
+              }
+            }
+          }
+          if (seq === focusSeq) {
+            updateZoomReadout();
+          }
+        } catch (err) {
+          console.warn('focusElement error:', err);
+        }
+      }
+
+      function updateSearchHud(query, matchIds) {
+        const trimmed = query.trim();
+        if (!trimmed) {
+          searchCountEl.classList.remove('visible', 'empty');
+          searchCountEl.textContent = '';
+          searchClearBtn.classList.remove('visible');
+          return;
+        }
+        searchClearBtn.classList.add('visible');
+        searchCountEl.classList.add('visible');
+        if (matchIds.length === 0) {
+          searchCountEl.classList.add('empty');
+          searchCountEl.textContent = '0 matches';
+        } else {
+          searchCountEl.classList.remove('empty');
+          searchCountEl.textContent = matchIds.length === 1 ? '1 match' : (matchIds.length + ' matches');
+        }
+      }
+
+      async function applySelectionAndSearch(shouldFocusCamera) {
+        if (!graph || !currentPayload) return;
+        const nodes = currentPayload.data.nodes || [];
+        const edges = currentPayload.data.edges || [];
+        const combos = layoutMode === 'zones' ? (currentPayload.data.combos || []) : [];
+        const trimmedQuery = searchQuery.trim();
+
+        const stateMap = {};
+
+        // Mode A: Spotlight Search takes precedence — highlight ONLY matched nodes,
+        // dark-fade all non-matching nodes & edges, AND hide text labels on non-matches!
+        if (trimmedQuery.length > 0) {
+          const matchIds = findMatchingNodes(trimmedQuery);
+          lastMatchIds = matchIds;
+          matchCursor = 0;
+          updateSearchHud(trimmedQuery, matchIds);
+
+          const matchSet = new Set(matchIds);
+          for (const n of nodes) {
+            stateMap[n.id] = matchSet.has(n.id) ? ['search-match'] : ['search-dim'];
+          }
+          for (const e of edges) {
+            // Only keep edges connecting two matched nodes faintly visible; dark-fade all others
+            const bothMatched = matchSet.has(e.source) && matchSet.has(e.target);
+            stateMap[e.id] = bothMatched ? ['active'] : ['search-dim'];
+          }
+          for (const c of combos) {
+            stateMap[c.id] = ['search-dim'];
+          }
+
+          try {
+            await graph.setElementState(stateMap, false);
+          } catch (err) {
+            console.warn('setElementState (search) error:', err);
+          }
+
+          if (shouldFocusCamera && matchIds.length > 0) {
+            await focusMatchedNodes(matchIds);
+          }
+          return;
+        }
+
+        // Clearing search restores everything cleanly
+        lastMatchIds = [];
+        matchCursor = 0;
+        updateSearchHud('', []);
+
+        // Mode B: Service selection highlight (1-hop neighborhood)
+        const selectedNodeIds = new Set();
+        const highlightedNodeIds = new Set();
+        const highlightedEdgeIds = new Set();
+
+        if (currentSelectedService) {
+          for (const n of nodes) {
+            if (n.data && n.data.serviceName === currentSelectedService) {
+              selectedNodeIds.add(n.id);
+              highlightedNodeIds.add(n.id);
+            }
+          }
+        }
+
+        const hasFocus = highlightedNodeIds.size > 0;
+        if (hasFocus) {
+          for (const e of edges) {
+            if (highlightedNodeIds.has(e.source) || highlightedNodeIds.has(e.target)) {
+              highlightedEdgeIds.add(e.id);
+              highlightedNodeIds.add(e.source);
+              highlightedNodeIds.add(e.target);
+            }
+          }
+        }
+
+        for (const n of nodes) {
+          if (selectedNodeIds.has(n.id)) {
+            stateMap[n.id] = ['selected'];
+          } else if (hasFocus && highlightedNodeIds.has(n.id)) {
+            stateMap[n.id] = ['active'];
+          } else if (hasFocus) {
+            stateMap[n.id] = ['inactive'];
+          } else {
+            stateMap[n.id] = [];
+          }
+        }
+        for (const e of edges) {
+          if (hasFocus && highlightedEdgeIds.has(e.id)) {
+            stateMap[e.id] = ['active'];
+          } else if (hasFocus) {
+            stateMap[e.id] = ['inactive'];
+          } else {
+            stateMap[e.id] = [];
+          }
+        }
+        for (const c of combos) {
+          stateMap[c.id] = [];
+        }
+
+        try {
+          await graph.setElementState(stateMap, false);
+        } catch (err) {
+          console.warn('setElementState error:', err);
+        }
+      }
+
+      function layoutConfigFor(mode) {
+        if (mode === 'network') {
+          return {
+            type: 'd3-force',
+            center: false,
+            alphaDecay: 0.032,
+            link: {
+              distance: (edge) => (edge && edge.data && edge.data.kind === 'ingress-switch') ? 270 : 320,
+              strength: 0.38,
+            },
+            manyBody: {
+              strength: -1350,
+              distanceMax: 1200,
+            },
+            collide: {
+              radius: (node) => (node && node.data && node.data.kind === 'domain') ? 155 : 148,
+              strength: 1.0,
+              iterations: 10,
+            },
+            x: {
+              x: (node) => {
+                const kind = node && node.data && node.data.kind;
+                if (kind === 'switch') return -580;
+                if (kind === 'domain') return -260;
+                if (kind === 'api') return 140;
+                return 560;
+              },
+              strength: 0.16,
+            },
+            y: {
+              y: 0,
+              strength: 0.04,
+            },
+          };
+        }
+        if (mode === 'dagre') {
+          return {
+            type: 'antv-dagre',
+            rankdir: 'TB',
+            align: 'UL',
+            nodeSize: (node) => {
+              const kind = node && node.data && node.data.kind;
+              if (kind === 'domain') return [244, 46];
+              if (kind === 'switch') return [196, 68];
+              return [224, 68];
+            },
+            nodesep: 68,
+            ranksep: 118,
+          };
+        }
+        // 'zones' uses mathematically non-overlapping coordinates precomputed in Rust
+        return undefined;
+      }
+
+      async function rebuildGraph(shouldFit) {
+        if (!g6Loaded || !window.G6 || !currentPayload) return;
+        registerK8sCardNode();
+
+        const container = document.getElementById('mount');
+        const width = Math.max(container.clientWidth || window.innerWidth || 800, 100);
+        const height = Math.max(container.clientHeight || window.innerHeight || 500, 100);
+
+        if (graph) {
+          try { graph.destroy(); } catch (_) {}
+          graph = null;
+        }
+
+        const prepared = buildPreparedData(currentPayload);
+        const layout = layoutConfigFor(layoutMode);
+
+        const { Graph } = window.G6;
+        graph = new Graph({
+          container: 'mount',
+          width,
+          height,
+          autoFit: shouldFit ? 'view' : undefined,
+          padding: [74, 48, 74, 48],
+          animation: { duration: 260 },
+          zoomRange: [0.18, 2.8],
+          data: prepared,
+          layout,
+          node: {
+            type: customNodeRegistered ? 'k8s-card' : 'rect',
+            state: {
+              selected: {
+                stroke: '#f59e0b',
+                lineWidth: 3,
+                shadowColor: 'rgba(245, 158, 11, 0.78)',
+                shadowBlur: 24,
+                labelOpacity: 1,
+                fillOpacity: 1,
+                strokeOpacity: 1,
+              },
+              'search-match': {
+                stroke: '#fbbf24',
+                lineWidth: 3.2,
+                shadowColor: 'rgba(251, 191, 36, 0.88)',
+                shadowBlur: 28,
+                fillOpacity: 1,
+                strokeOpacity: 1,
+                labelOpacity: 1,
+                labelFill: '#ffffff',
+                zIndex: 10,
+              },
+              'search-dim': {
+                fill: '#0a0c16',
+                stroke: '#1e293b',
+                fillOpacity: 0.18,
+                strokeOpacity: 0.16,
+                shadowBlur: 0,
+                labelOpacity: 0,
+                labelFill: 'transparent',
+              },
+              active: {
+                stroke: '#fbbf24',
+                lineWidth: 2.4,
+                shadowColor: 'rgba(251, 191, 36, 0.45)',
+                shadowBlur: 16,
+                labelOpacity: 1,
+              },
+              inactive: {
+                fillOpacity: 0.24,
+                strokeOpacity: 0.18,
+                labelOpacity: 0.28,
+              },
+            },
+          },
+          edge: {
+            state: {
+              active: {
+                stroke: '#f59e0b',
+                strokeOpacity: 1,
+                lineWidth: 2.8,
+                endArrowFill: '#f59e0b',
+                shadowColor: 'rgba(245, 158, 11, 0.55)',
+                shadowBlur: 8,
+              },
+              'search-dim': {
+                stroke: '#1e293b',
+                strokeOpacity: 0.05,
+                lineWidth: 0.8,
+                endArrow: false,
+              },
+              inactive: {
+                strokeOpacity: 0.07,
+                lineWidth: 1,
+              },
+            },
+          },
+          combo: {
+            type: 'rect',
+            state: {
+              active: {
+                stroke: '#c084fc',
+                lineWidth: 2,
+              },
+              'search-dim': {
+                fillOpacity: 0.02,
+                strokeOpacity: 0.10,
+                labelOpacity: 0,
+                labelFill: 'transparent',
+                labelBackgroundOpacity: 0,
+                labelBackgroundFill: 'transparent',
+                labelBackgroundStroke: 'transparent',
+              },
+            },
+          },
+          behaviors: [
+            'drag-canvas',
+            {
+              type: 'zoom-canvas',
+              sensitivity: 1.25,
+            },
+            'drag-element',
+            {
+              key: 'hover-activate',
+              type: 'hover-activate',
+              degree: 1,
+              state: 'active',
+              inactiveState: 'inactive',
+              enable: (e) => e.targetType === 'node' && !currentSelectedService && !searchQuery.trim(),
+            },
+          ],
+          plugins: [
+            {
+              type: 'tooltip',
+              trigger: 'hover',
+              className: 'k9s-dark-tooltip',
+              enable: (e) => e.targetType === 'node' || e.targetType === 'edge',
+              getContent: renderTooltipContent,
+            },
+          ],
+        });
+
+        graph.on('node:click', (evt) => {
+          const id = evt && evt.target && evt.target.id;
+          if (!id) return;
+          const nodeData = graph.getNodeData(id);
+          const svcName = nodeData && nodeData.data && nodeData.data.serviceName;
+          if (svcName) {
+            currentSelectedService = svcName;
+            if (!searchQuery.trim()) {
+              applySelectionAndSearch(false);
+            }
+            postIpc({ type: 'select_service', name: svcName });
+          }
+        });
+
+        graph.on('node:dblclick', (evt) => {
+          const id = evt && evt.target && evt.target.id;
+          if (!id) return;
+          const nodeData = graph.getNodeData(id);
+          const svcName = nodeData && nodeData.data && nodeData.data.serviceName;
+          if (svcName) {
+            postIpc({ type: 'drill_service', name: svcName });
+          }
+        });
+
+        graph.on('canvas:click', () => {
+          if (currentSelectedService) {
+            currentSelectedService = null;
+            applySelectionAndSearch(false);
+            postIpc({ type: 'clear_selection' });
+          }
+        });
+
+        graph.on('viewport:transform', updateZoomReadout);
+        let needsPostLayoutFit = shouldFit;
+        graph.on('afterlayout', () => {
+          if (needsPostLayoutFit && graph) {
+            needsPostLayoutFit = false;
+            graph.fitView({ padding: [74, 48, 74, 48] }).then(updateZoomReadout).catch(() => {});
+          }
+        });
+        graph.on('afterrender', () => {
+          updateZoomReadout();
+          applySelectionAndSearch(false);
+        });
+
+        await graph.render();
+        if (shouldFit) {
+          try { await graph.fitView({ padding: [74, 48, 74, 48] }); } catch (_) {}
+        }
+        updateZoomReadout();
+        statusOverlay.classList.add('hidden');
+      }
+
+      function updateMetaHud(payload) {
+        const m = (payload && payload.meta) || {};
+        metaNs.textContent = `${m.envLabel || 'STG'} / ${m.namespace || 'cluster'}`;
+        metaCounts.textContent = `• ${m.serviceCount || 0} services • ${m.ingressCount || 0} routes • ${m.edgeCount || 0} edges`;
+      }
+
+      function clearSearch(refit) {
+        clearTimeout(searchDebounce);
+        focusSeq++;
+        searchQuery = '';
+        filterInput.value = '';
+        applySelectionAndSearch(false);
+        if (refit && graph) {
+          graph.fitView({ padding: [74, 48, 74, 48] }).then(updateZoomReadout).catch(() => {});
+        }
+      }
+
+      // Public bridge invoked from Rust via wry::WebView::evaluate_script
+      window.__k9sTopology = {
+        setData(payload) {
+          currentPayload = payload;
+          currentSelectedService = payload && payload.selectedService ? payload.selectedService : null;
+          updateMetaHud(payload);
+          if (g6Loaded) {
+            rebuildGraph(true);
+          }
+        },
+        setSelected(serviceName) {
+          currentSelectedService = serviceName || null;
+          applySelectionAndSearch(false);
+        },
+        fitView() {
+          if (graph) {
+            graph.fitView({ padding: [74, 48, 74, 48] }).then(updateZoomReadout).catch(() => {});
+          }
+        },
+        zoomBy(ratio) {
+          if (graph) {
+            graph.zoomBy(ratio).then(updateZoomReadout).catch(() => {});
+          }
+        },
+        resetView() {
+          currentSelectedService = null;
+          clearSearch(true);
+          postIpc({ type: 'clear_selection' });
+        }
+      };
+
+      // Bottom floating toolbar bindings
+      document.getElementById('btn-zoom-in').addEventListener('click', () => window.__k9sTopology.zoomBy(1.2));
+      document.getElementById('btn-zoom-out').addEventListener('click', () => window.__k9sTopology.zoomBy(1 / 1.2));
+      document.getElementById('btn-fit').addEventListener('click', () => window.__k9sTopology.fitView());
+      document.getElementById('btn-reset').addEventListener('click', () => window.__k9sTopology.resetView());
+
+      const btnCurve = document.getElementById('btn-edge-curve');
+      const btnPoly = document.getElementById('btn-edge-poly');
+      btnCurve.addEventListener('click', () => {
+        if (edgeMode === 'quadratic') return;
+        edgeMode = 'quadratic';
+        btnCurve.classList.add('active');
+        btnPoly.classList.remove('active');
+        rebuildGraph(false);
+      });
+      btnPoly.addEventListener('click', () => {
+        if (edgeMode === 'polyline') return;
+        edgeMode = 'polyline';
+        btnPoly.classList.add('active');
+        btnCurve.classList.remove('active');
+        rebuildGraph(false);
+      });
+
+      const layoutBtns = {
+        network: document.getElementById('btn-layout-network'),
+        zones: document.getElementById('btn-layout-zones'),
+        dagre: document.getElementById('btn-layout-dagre'),
+      };
+      function setLayoutMode(nextMode) {
+        if (layoutMode === nextMode) return;
+        layoutMode = nextMode;
+        for (const [k, btn] of Object.entries(layoutBtns)) {
+          btn.classList.toggle('active', k === nextMode);
+        }
+        rebuildGraph(true);
+      }
+      layoutBtns.network.addEventListener('click', () => setLayoutMode('network'));
+      layoutBtns.zones.addEventListener('click', () => setLayoutMode('zones'));
+      layoutBtns.dagre.addEventListener('click', () => setLayoutMode('dagre'));
+
+      // Search input: debounced spotlight + camera focus; Enter cycles matches; clear restores view
+      filterInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value || '';
+        clearTimeout(searchDebounce);
+        if (!searchQuery.trim()) {
+          applySelectionAndSearch(false);
+          if (graph) {
+            graph.fitView({ padding: [74, 48, 74, 48] }).then(updateZoomReadout).catch(() => {});
+          }
+          return;
+        }
+        searchDebounce = setTimeout(() => {
+          applySelectionAndSearch(true);
+        }, 120);
+      });
+
+      filterInput.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          clearTimeout(searchDebounce);
+          const trimmed = (filterInput.value || '').trim();
+          if (trimmed !== searchQuery.trim() || lastMatchIds.length === 0) {
+            searchQuery = filterInput.value || '';
+            await applySelectionAndSearch(false);
+          }
+          if (lastMatchIds.length > 0) {
+            const targetId = lastMatchIds[matchCursor % lastMatchIds.length];
+            matchCursor = (matchCursor + 1) % lastMatchIds.length;
+            focusMatchedNodes([targetId]);
+          }
+        }
+      });
+
+      searchClearBtn.addEventListener('click', () => {
+        clearSearch(true);
+        filterInput.focus();
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          filterInput.focus();
+          filterInput.select();
+          return;
+        }
+        if (e.key === 'Escape') {
+          if (searchQuery.trim()) {
+            clearSearch(true);
+            return;
+          }
+          postIpc({ type: 'exit_fullscreen' });
+        }
+      });
+
+      let resizeTimer = null;
+      window.addEventListener('resize', () => {
+        if (!graph) return;
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          const container = document.getElementById('mount');
+          const w = Math.max(container.clientWidth || window.innerWidth, 100);
+          const h = Math.max(container.clientHeight || window.innerHeight, 100);
+          try {
+            graph.resize(w, h);
+          } catch (_) {}
+        }, 40);
+      });
+
+      function loadScript(index) {
+        if (index >= CDN_URLS.length) {
+          statusTitle.textContent = 'AntV G6 v5 could not load (Offline / CDN blocked)';
+          statusBody.textContent = 'Check your network connection or switch to the Classic Isometric view in the toolbar above.';
+          postIpc({ type: 'load_error', message: 'Failed to load @antv/g6@5 from CDN' });
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = CDN_URLS[index];
+        script.async = true;
+        script.onload = () => {
+          if (window.G6 && window.G6.Graph) {
+            g6Loaded = true;
+            registerK8sCardNode();
+            postIpc({ type: 'ready' });
+            if (currentPayload) {
+              rebuildGraph(true);
+            } else {
+              statusTitle.textContent = 'Waiting for cluster snapshot…';
+              statusBody.textContent = 'AntV G6 v5 engine ready.';
+            }
+          } else {
+            loadScript(index + 1);
+          }
+        };
+        script.onerror = () => loadScript(index + 1);
+        document.head.appendChild(script);
+      }
+
+      loadScript(0);
+    })();
+  </script>
+</body>
+</html>

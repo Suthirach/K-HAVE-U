@@ -5,6 +5,7 @@ pub mod service_detail;
 pub mod services;
 pub mod terminal;
 pub mod topology;
+pub mod topology_g6;
 
 use crate::k8s::{EnvKind, Health};
 use crate::state::{AppState, Page, ServiceTab, Tab};

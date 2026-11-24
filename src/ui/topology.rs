@@ -1,7 +1,8 @@
 use crate::k8s::{EnvKind, Health, NodeRole, ServiceInfo};
 use crate::state::{AppState, ServiceTab, Tab};
+use crate::ui::pill::{PillSize, PillVariant, interactive, pill_btn, segmented_group};
+use crate::ui::topology_g6::{G6Command, TopologyViewMode};
 use crate::ui::{alert_blink_color, health_color};
-use crate::ui::pill::{PillSize, PillVariant, interactive, pill_btn};
 use rune::{Color, Cursor, Drag, El, LineCap, Path, Phase, ScrollSpec, Shadow, Shape, TextStyle, WheelEvent, col, el, row, text};
 use rune::tok::motion;
 use rune_kit::{Badge, BadgeVariant, Kit};
@@ -639,12 +640,145 @@ fn storage_cube_tile(
     )
 }
 
+fn g6_zoom_toolbar() -> El {
+    row()
+        .gap(6.0)
+        .center_y()
+        .child(pill_btn("−", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::ZoomOut)))
+        .child(pill_btn("+", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::ZoomIn)))
+        .child(pill_btn("Fit View", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::FitView)))
+        .child(pill_btn("⛶ เต็มจอ", PillVariant::Primary, PillSize::Sm, |s: &mut AppState| s.diagram_fullscreen = true))
+}
+
+fn topology_mode_switch(mode: TopologyViewMode) -> El {
+    let g6_active = mode == TopologyViewMode::G6;
+    segmented_group([
+        pill_btn(
+            "🌐 AntV G6",
+            if g6_active { PillVariant::Primary } else { PillVariant::Glass },
+            PillSize::Sm,
+            |s: &mut AppState| s.topology_mode = TopologyViewMode::G6,
+        ),
+        pill_btn(
+            "🧱 Classic",
+            if !g6_active { PillVariant::Chrome } else { PillVariant::Glass },
+            PillSize::Sm,
+            |s: &mut AppState| s.topology_mode = TopologyViewMode::Classic,
+        ),
+    ])
+}
+
+fn g6_viewport_host(s: &AppState, fullscreen: bool, k: &Kit) -> El {
+    let c = &k.c;
+    let body = if let Some(err) = &s.g6_error {
+        col()
+            .center()
+            .gap(10.0)
+            .padding(24.0)
+            .child(
+                text("AntV G6 WebView Unavailable")
+                    .font(TextStyle::new(15.0, 600.0))
+                    .color(c.text_strong),
+            )
+            .child(
+                text(err.clone())
+                    .font(k.ty.text_small)
+                    .color(c.text_muted),
+            )
+            .child(pill_btn(
+                "Switch to Classic Isometric View",
+                PillVariant::Primary,
+                PillSize::Md,
+                |s: &mut AppState| s.topology_mode = TopologyViewMode::Classic,
+            ))
+    } else {
+        col()
+            .center()
+            .gap(6.0)
+            .child(
+                text("AntV G6 v5 — Interactive Cluster Topology")
+                    .font(TextStyle::new(14.0, 600.0))
+                    .color(rune::color::hex("#e9d5ff").unwrap()),
+            )
+            .child(
+                text("Initializing embedded WebView canvas…")
+                    .font(k.ty.text_small)
+                    .color(c.text_muted),
+            )
+    };
+
+    let mut host = col()
+        .key("g6-topology-viewport")
+        .w_full()
+        .center()
+        .clip_rounded(if fullscreen { 0.0 } else { k.radius.lg })
+        .gradient(
+            rune::color::hex("#2e1065").unwrap(),
+            rune::color::hex("#090b14").unwrap(),
+        )
+        .drawn_rect_into(&s.g6_viewport_rect)
+        .child(body);
+
+    if fullscreen {
+        host = host.grow(1.0).shrink().min_h(0.0);
+    } else {
+        host = host
+            .grow(1.0)
+            .shrink()
+            .min_h(420.0)
+            .radius(k.radius.lg)
+            .border(1.0, rune::color::hex("#7c3aed").unwrap().alpha(0.45));
+    }
+
+    host
+}
+
+fn floating_g6_fullscreen_bar(k: &Kit) -> El {
+    let bar = row()
+        .key("fs-g6-floating-controls")
+        .padding(8.0)
+        .gap(6.0)
+        .center_y()
+        .radius(999.0)
+        .fill(rune::color::hex("#0f1420").unwrap().alpha(0.94))
+        .border(1.25, rune::color::hex("#a855f7").unwrap().alpha(0.65))
+        .child(text("AntV G6 v5 • Scroll Zoom • Drag Pan • Hover Trace").font(k.ty.small_medium).color(k.c.text_muted))
+        .child(pill_btn("−", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::ZoomOut)))
+        .child(pill_btn("+", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::ZoomIn)))
+        .child(pill_btn("Fit", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::FitView)))
+        .child(pill_btn("Reset", PillVariant::Glass, PillSize::Sm, |s: &mut AppState| s.send_g6_cmd(G6Command::ResetView)))
+        .child(pill_btn("🧱 Classic", PillVariant::Chrome, PillSize::Sm, |s: &mut AppState| {
+            s.topology_mode = TopologyViewMode::Classic;
+        }))
+        .child(pill_btn("✕ ออกจากเต็มจอ (Esc)", PillVariant::Danger, PillSize::Sm, |s: &mut AppState| {
+            s.diagram_fullscreen = false;
+        }));
+
+    row()
+        .w_full()
+        .px(20.0)
+        .py(10.0)
+        .fill(rune::color::hex("#080b14").unwrap())
+        .child(el().grow(1.0))
+        .child(bar)
+}
+
 pub fn view(s: &AppState, k: &Kit) -> El {
     let c = &k.c;
     let snap = &s.snapshot;
     let pct = format!("{}%", (s.diagram_zoom * 100.0).round() as i32);
+    let use_g6 = s.topology_mode == TopologyViewMode::G6;
 
     if s.diagram_fullscreen {
+        if use_g6 {
+            return col()
+                .key("true-fullscreen-g6")
+                .w_full()
+                .h_full()
+                .fill(rune::color::hex("#080b14").unwrap())
+                .child(g6_viewport_host(s, true, k))
+                .child(floating_g6_fullscreen_bar(k));
+        }
         return col()
             .key("true-fullscreen-building")
             .w_full()
@@ -654,9 +788,11 @@ pub fn view(s: &AppState, k: &Kit) -> El {
             .child(floating_zoom_bar(pct, k));
     }
 
-    let env_desc = match snap.env {
-        EnvKind::Stg => "สภาพแวดล้อมทดสอบ (STG) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิกตึกเพื่อเจาะลึก",
-        EnvKind::Prod => "สภาพแวดล้อมจริง (PROD) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิกตึกเพื่อเจาะลึก",
+    let env_desc = match (snap.env, use_g6) {
+        (EnvKind::Stg, true) => "STG • AntV G6 v5 — Combo auto-padding, hover edge highlight, click node เพื่อเปิด drawer, double-click เพื่อเจาะลึก",
+        (EnvKind::Prod, true) => "PROD • AntV G6 v5 — Combo auto-padding, hover edge highlight, click node เพื่อเปิด drawer, double-click เพื่อเจาะลึก",
+        (EnvKind::Stg, false) => "สภาพแวดล้อมทดสอบ (STG) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิกตึกเพื่อเจาะลึก",
+        (EnvKind::Prod, false) => "สภาพแวดล้อมจริง (PROD) — Scroll เมาส์เพื่อ Zoom ตรงจุดที่ชี้ • ลากเพื่อเลื่อน • คลิกตึกเพื่อเจาะลึก",
     };
 
     let header = row()
@@ -681,7 +817,14 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 )
                 .child(text(env_desc).font(k.ty.text_small).color(c.text_muted)),
         )
-        .child(zoom_toolbar(pct, k));
+        .child(topology_mode_switch(s.topology_mode))
+        .child(if use_g6 { g6_zoom_toolbar() } else { zoom_toolbar(pct, k) });
+
+    let canvas = if use_g6 {
+        g6_viewport_host(s, false, k)
+    } else {
+        infra_building_canvas(s, false, k).grow(1.0).shrink().min_h(0.0)
+    };
 
     let main_col = col()
         .key("topo-main")
@@ -692,7 +835,7 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .padding(18.0)
         .gap(14.0)
         .child(header)
-        .child(infra_building_canvas(s, false, k).grow(1.0).shrink().min_h(0.0));
+        .child(canvas);
 
     if let Some(svc) = s.selected_service_info() {
         return row()

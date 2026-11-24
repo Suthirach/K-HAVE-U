@@ -111,10 +111,31 @@ fn main() {
     };
 
     rune::run_windows(|_| {
-        let win = WindowSpec::new("main", app).options(WindowOptions {
-            borderless: true,
-            ..Default::default()
-        });
+        let win = WindowSpec::new("main", app)
+            .options(WindowOptions {
+                borderless: true,
+                ..Default::default()
+            })
+            .on_window(|handle| {
+                ui::topology_g6::attach_window(handle.clone());
+            })
+            .on_frame_drawn(|rt| {
+                ui::topology_g6::sync_webview(&rt.state);
+            })
+            .on_visibility(|s, visible, _| {
+                s.g6_window_visible = visible;
+                if !visible {
+                    ui::topology_g6::hide_webview();
+                }
+            })
+            .on_close(|s, _| {
+                s.g6_window_visible = false;
+                ui::topology_g6::destroy_webview();
+            })
+            .on_quit(|s, _| {
+                s.g6_window_visible = false;
+                ui::topology_g6::destroy_webview();
+            });
         [win]
     });
 }
