@@ -1,0 +1,17 @@
+{
+  "tabs": [
+    {
+      "id": 1,
+      "title": "Overview",
+      "page": "Overview",
+      "ns_tab": "Topology",
+      "service_tab": "Env",
+      "env": "Prod",
+      "namespace": "htai-prod",
+      "service_name": null,
+      "env_search": "",
+      "svc_search": ""
+    }
+  ],
+  "active_id": 1
+}

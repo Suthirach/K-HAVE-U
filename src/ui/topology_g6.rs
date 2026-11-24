@@ -746,6 +746,7 @@ impl G6WebViewHost {
 
     fn should_show(state: &AppState) -> bool {
         state.session.is_some()
+            && !state.picking_project
             && state.g6_window_visible
             && state.page == Page::Namespace
             && state.tab == Tab::Topology

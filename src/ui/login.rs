@@ -144,6 +144,11 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 ),
         );
 
+    if let Some(panel) = crate::ui::tools_panel::view(s, k) {
+        card = card.child(panel);
+    }
+    card = card.child(crate::ui::update_panel::view(s, k));
+
     if let Some(err) = &s.login_error {
         card = card.child(
             row()

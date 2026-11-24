@@ -79,3 +79,33 @@ target\debug\k9s-ui.exe --scene overview --size 1340x860 --scale 1 --snap overvi
 ```
 
 ซีนที่มี: `overview`, `topology`, `service`
+
+## ติดตั้งและอัปเดต (สำหรับผู้ใช้ทั่วไป)
+
+โหลดไฟล์จากหน้า **Releases** ของ repo นี้ ไม่ต้องใช้ Terminal และไม่ต้องติดตั้ง Rust
+
+| เครื่อง | ไฟล์ | วิธีติดตั้ง |
+| --- | --- | --- |
+| Mac (M1/M2/M3 และ Intel) | `K9s-Studio-Mac.dmg` | เปิดไฟล์ แล้วลาก **K9s Studio** ไปที่ Applications (ครั้งแรกถ้ามีเตือน: คลิกขวา → Open) |
+| Windows 10/11 (x64) | `K9s-Studio-Windows-Setup.exe` | ดับเบิลคลิกแล้วกด Next ไปจนเสร็จ (ถ้าเจอ SmartScreen: More info → Run anyway) |
+
+- **เครื่องมือที่ต้องใช้ (kubectl, k9s, gcloud):** ถ้าเครื่องยังไม่มี แอปจะขึ้นแถบเหลือง กด **ติดตั้งให้อัตโนมัติ** แอปจะโหลดมาเก็บในโฟลเดอร์ของแอปเอง
+- **อัปเดต:** ตอนเปิดแอปจะเช็กเวอร์ชันใหม่จาก Releases ถ้ามีจะขึ้นปุ่ม **อัปเดตเป็น vX** ที่แถบด้านบน กดแล้วแอปโหลดตัวใหม่ ติดตั้งทับ และเปิดใหม่ให้เอง 
+- **ตั้งค่าครั้งแรก:** เปิดแอปครั้งแรกจะมีหน้า "ตั้งค่าเริ่มต้น" ให้วาง key (ไม่บังคับ) และติดตั้งเครื่องมือที่ขาด ก่อนไปหน้าเข้าสู่ระบบ ส่วน Windows มีช่องกรอก key ในหน้าต่างติดตั้ง (Setup.exe) ด้วย
+- **ถ้า repo นี้เป็น private:** ที่หน้าล็อกอินมีช่อง "อัปเดตแอปจาก repo private" ให้วาง GitHub token แล้วกด **บันทึกและเช็ก** (สร้างที่ GitHub → Settings → Developer settings → Personal access tokens → *Fine-grained tokens* เลือกเฉพาะ repo `K-HAVE-U` และให้สิทธิ์ *Contents: Read-only* อย่างเดียว) token ถูกเก็บเป็นไฟล์ `update-settings.json` ในโฟลเดอร์ของแอป (Mac: `~/Library/Application Support/K9s Studio/`, Windows: `%LOCALAPPDATA%\K9s Studio\`) หรือตั้งตัวแปร `K9S_STUDIO_GITHUB_TOKEN` อย่าฝัง token ลงในตัวแอปที่แจกคนอื่น เพราะใครก็ดึงออกมาได้ ถ้าแจกให้หลายคนใช้ repo public ที่เก็บเฉพาะไฟล์ Release จะปลอดภัยกว่า
+
+### ออกเวอร์ชันใหม่ (สำหรับผู้ดูแล)
+
+1. แก้ `version` ใน `Cargo.toml` (เช่น `0.2.0`) แล้ว commit
+2. `git tag v0.2.0 && git push origin v0.2.0` (tag ต้องตรงกับเลขใน `Cargo.toml`)
+3. GitHub Actions ([.github/workflows/build.yml](.github/workflows/build.yml)) จะ build และสร้าง Release พร้อมไฟล์สองตัวด้านบนให้เอง ชื่อไฟล์ห้ามเปลี่ยน เพราะตัวอัปเดตในแอปโหลดตามชื่อนี้
+4. ถ้า repo `rune` เป็น private ให้เพิ่ม secret `RUNE_TOKEN` (Personal Access Token ที่อ่าน repo นั้นได้) ใน Settings ของ repo นี้
+
+### สคริปต์สำหรับนักพัฒนา (โฟลเดอร์ `scripts/`)
+
+| ไฟล์ | ทำอะไร |
+| --- | --- |
+| `Mac-Run-for-Development.sh` | รันแอปจาก source (`cargo run`) พร้อมตั้ง PATH ให้ |
+| `Mac-Build-and-Install-from-Source.command` | ดับเบิลคลิก: build จาก source แล้วติดตั้งลง /Applications |
+| `Mac-Uninstall-K9s-Studio.command`, `Windows-Uninstall-K9s-Studio.bat` | ดับเบิลคลิกเพื่อลบแอป การตั้งค่า และเครื่องมือที่แอปโหลดเอง (ถามก่อนทุกครั้ง) ใน .dmg มีแอป **Uninstall K9s Studio** ให้ดับเบิลคลิก (ไม่เปิด Terminal) ถามขออนุญาตครั้งเดียว มีตัวเลือก ลบทั้งหมด / ลบเฉพาะแอป / ยกเลิก |
+| `Mac-Install-Tools-Manual.command`, `Windows-Install-Tools-Manual.bat` | ติดตั้ง kubectl/k9s/gcloud ด้วยมือ (ปกติไม่ต้องใช้ เพราะแอปติดตั้งให้เอง) |

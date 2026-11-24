@@ -1,8 +1,11 @@
 mod auth;
+mod gcp;
 mod k8s;
 mod pty_k9s;
 mod state;
+mod tools;
 mod ui;
+mod update;
 
 use rune::{AppSpec, Cx, El, Key, KeyEvent, Tx, WindowOptions, WindowSpec};
 use rune::runtime::Waker;
@@ -10,6 +13,8 @@ use state::{AppState, Page, ServiceTab, Tab};
 
 fn setup(s: &mut AppState, waker: Waker) {
     s.waker = Some(waker);
+    s.check_tools();
+    s.check_for_update();
 }
 
 fn poll(s: &mut AppState, t: f64, tx: &mut Tx) -> bool {
@@ -38,6 +43,9 @@ fn poll(s: &mut AppState, t: f64, tx: &mut Tx) -> bool {
 }
 
 fn on_key(s: &mut AppState, ev: &KeyEvent, _tx: &mut Tx) -> bool {
+    if s.show_setup {
+        return false;
+    }
     if s.session.is_none() {
         if matches!(ev.key, Key::Enter) {
             s.try_login();
@@ -79,15 +87,27 @@ fn view(s: &AppState, _cx: &mut Cx<AppState>) -> El {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         format!(
-            "{}{:?}{:?}{:?}{}{:?}",
-            s.session.is_some(), s.page, s.tab, s.service_tab, s.active_tab_id, s.selected_service
+            "{}{}{}{}{:?}{:?}{:?}{}{:?}",
+            s.show_setup,
+            s.session.is_some(),
+            s.picking_project,
+            s.selected_project.is_some(),
+            s.page,
+            s.tab,
+            s.service_tab,
+            s.active_tab_id,
+            s.selected_service
         )
         .hash(&mut h);
         h.finish()
     };
     ui::pill::begin_view(screen);
     let k = ui::theme::warm_dark_kit();
-    let base = if s.session.is_some() {
+    let base = if s.show_setup {
+        ui::setup::view(s, k)
+    } else if s.session.is_some() && s.picking_project {
+        ui::project_picker::view(s, k)
+    } else if s.session.is_some() {
         ui::app_shell(s, k)
     } else {
         ui::login::view(s, k)
@@ -117,7 +137,56 @@ fn scene_service_detail(s: &mut AppState) {
     s.drill_into_service("staging-pg-srv".into(), ServiceTab::Env);
 }
 
+/// An app launched from Finder gets a bare PATH (no Homebrew, no gcloud) and `/` as its
+/// working directory. Add the usual tool locations and keep settings under Application Support.
+#[cfg(target_os = "macos")]
+fn prepare_macos_environment() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut dirs: Vec<String> = vec![
+        "/opt/homebrew/bin".into(),
+        "/opt/homebrew/sbin".into(),
+        "/usr/local/bin".into(),
+        "/usr/local/sbin".into(),
+        "/usr/local/share/google-cloud-sdk/bin".into(),
+    ];
+    if !home.is_empty() {
+        dirs.push(format!("{home}/google-cloud-sdk/bin"));
+    }
+    if let Ok(entries) = std::fs::read_dir("/opt/homebrew/Caskroom/gcloud-cli") {
+        for e in entries.flatten() {
+            dirs.push(format!("{}/google-cloud-sdk/bin", e.path().display()));
+        }
+    }
+    for d in std::env::var("PATH").unwrap_or_default().split(':') {
+        if !d.is_empty() {
+            dirs.push(d.to_string());
+        }
+    }
+    let mut unique: Vec<String> = Vec::new();
+    for d in dirs {
+        if !unique.contains(&d) {
+            unique.push(d);
+        }
+    }
+    // SAFETY: called first thing in main, before any other thread exists.
+    unsafe { std::env::set_var("PATH", unique.join(":")) };
+
+    let from_bundle = std::env::current_exe()
+        .map(|p| p.to_string_lossy().contains(".app/Contents/MacOS"))
+        .unwrap_or(false);
+    if from_bundle && !home.is_empty() {
+        let dir = std::path::PathBuf::from(home).join("Library/Application Support/K9s Studio");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let _ = std::env::set_current_dir(&dir);
+        }
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    prepare_macos_environment();
+    tools::add_to_path();
+
     let app = AppSpec {
         min_size: Some((1020.0, 660.0)),
         scenes: &[

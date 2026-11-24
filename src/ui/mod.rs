@@ -2,15 +2,20 @@ pub mod icons;
 pub mod login;
 pub mod overview;
 pub mod pill;
+pub mod project_picker;
 pub mod service_detail;
+pub mod setup;
 pub mod services;
 pub mod terminal;
 pub mod theme;
+pub mod tools_panel;
+pub mod update_panel;
 pub mod topology;
 pub mod topology_g6;
 
 use crate::k8s::{EnvKind, Health};
 use crate::state::{AppState, Page, ServiceTab, Tab};
+use crate::update::UpdateState;
 use icons::mono_icon;
 use pill::{
     PillSize, PillVariant, interactive, pill_icon_btn, pill_icon_only_tx, segmented_group,
@@ -66,6 +71,8 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
 
     let breadcrumb = if !logged_in {
         "Sign In".to_string()
+    } else if s.picking_project {
+        "เลือก Project".to_string()
     } else {
         match s.page {
             Page::Overview => "Overview · STG + PROD".to_string(),
@@ -112,12 +119,43 @@ pub fn custom_titlebar(s: &AppState, k: &Kit) -> El {
                 Some(theme::border_subtle()),
             ))
             .child(pill_icon_btn(
+                &icons::SWITCH_ARROWS,
+                match &s.active_project {
+                    Some(p) => format!("Project: {p}"),
+                    None => "เลือก Project".to_string(),
+                },
+                PillVariant::Glass,
+                PillSize::Sm,
+                |s: &mut AppState| s.begin_project_picker(),
+            ))
+            .child(pill_icon_btn(
                 &icons::LOGOUT,
                 "ออกจากระบบ",
                 PillVariant::Glass,
                 PillSize::Sm,
                 |s: &mut AppState| s.logout(),
             ));
+    }
+
+    match &s.update {
+        UpdateState::Available(version) => {
+            bar = bar.child(pill_icon_btn(
+                &icons::DOWNLOAD,
+                format!("อัปเดตเป็น v{version}"),
+                PillVariant::Primary,
+                PillSize::Sm,
+                |s: &mut AppState| s.start_update(),
+            ));
+        }
+        UpdateState::Installing(_) => {
+            bar = bar.child(soft_badge(
+                "กำลังอัปเดต...",
+                theme::metric_box_soft(),
+                theme::text_muted(),
+                Some(theme::border_subtle()),
+            ));
+        }
+        UpdateState::Idle => {}
     }
 
     bar.child(

@@ -147,7 +147,7 @@ pub fn spawn_google_login(
     });
 }
 
-fn gcloud_command(args: &[&str]) -> Command {
+pub fn gcloud_command(args: &[&str]) -> Command {
     #[cfg(target_os = "windows")]
     {
         let mut cmd = Command::new("cmd");

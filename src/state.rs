@@ -4,7 +4,11 @@ use crate::k8s::{
     default_overview, demo_snapshot, spawn_fetch_env, spawn_fetch_logs, spawn_fetch_overview,
     spawn_fetch_snapshot, spawn_list_all_namespaces, spawn_restart_deploy, spawn_update_env,
 };
+use crate::gcp::{
+    GcpProject, GkeCluster, spawn_get_credentials, spawn_list_clusters, spawn_list_projects,
+};
 use crate::pty_k9s::{K9sPty, K9sScreen};
+use crate::update::UpdateState;
 use crate::ui::topology_g6::{G6Command, TopologyViewMode, TopologyWebEvent};
 use rune::runtime::Waker;
 use rune::{Live, TextEdit};
@@ -66,6 +70,30 @@ pub struct AppState {
     pub login_user: TextEdit,
     pub login_pass: TextEdit,
     pub login_error: Option<String>,
+
+    // GCP project / GKE cluster picker (shown right after login)
+    pub picking_project: bool,
+    pub projects: Vec<GcpProject>,
+    pub projects_loading: bool,
+    pub selected_project: Option<GcpProject>,
+    pub clusters: Vec<GkeCluster>,
+    pub clusters_loading: bool,
+    pub connecting_cluster: Option<String>,
+    pub gcp_error: Option<String>,
+    pub active_project: Option<String>,
+    pub active_cluster: Option<String>,
+
+    // Runtime tools (kubectl / k9s / gcloud) and app updates
+    pub tools_missing: Vec<String>,
+    pub tools_installing: bool,
+    pub tools_log: String,
+    pub tools_error: Option<String>,
+    pub update: UpdateState,
+    pub update_token: Option<String>,
+    pub update_token_input: TextEdit,
+    pub update_note: Option<String>,
+    pub show_setup: bool,
+    pub tools_checked: bool,
 
     // Navigation & Environment
     pub open_tabs: Vec<WorkspaceTab>,
@@ -165,6 +193,26 @@ impl AppState {
             login_user: TextEdit::new(""),
             login_pass: TextEdit::new(""),
             login_error: None,
+            picking_project: false,
+            projects: Vec::new(),
+            projects_loading: false,
+            selected_project: None,
+            clusters: Vec::new(),
+            clusters_loading: false,
+            connecting_cluster: None,
+            gcp_error: None,
+            active_project: None,
+            active_cluster: None,
+            tools_missing: Vec::new(),
+            tools_installing: false,
+            tools_log: String::new(),
+            tools_error: None,
+            update: UpdateState::Idle,
+            update_token: crate::update::load_token(),
+            update_token_input: TextEdit::new(""),
+            update_note: None,
+            show_setup: !crate::update::setup_done(),
+            tools_checked: false,
             open_tabs,
             active_tab_id,
             next_tab_id,
@@ -250,8 +298,7 @@ impl AppState {
                 self.session = Some(sess);
                 self.login_error = None;
                 self.login_pass = TextEdit::new("");
-                self.refresh_overview();
-                self.refresh_cluster();
+                self.begin_project_picker();
             }
             Err(e) => {
                 self.login_error = Some(e);
@@ -259,10 +306,162 @@ impl AppState {
         }
     }
 
+    /// Looks (in the background) for kubectl / k9s / gcloud on PATH.
+    pub fn check_tools(&mut self) {
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        crate::tools::spawn_check(tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    /// Downloads whatever tool is missing into the app's own folder.
+    pub fn install_tools(&mut self) {
+        if self.tools_installing || self.tools_missing.is_empty() {
+            return;
+        }
+        self.tools_installing = true;
+        self.tools_error = None;
+        self.tools_log = "เริ่มดาวน์โหลด...".to_string();
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        crate::tools::spawn_install(self.tools_missing.clone(), tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    pub fn check_for_update(&mut self) {
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        crate::update::spawn_check(self.update_token.clone(), tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    /// Closes the first-run setup screen and remembers it was done.
+    pub fn finish_setup(&mut self) {
+        self.show_setup = false;
+        if let Err(e) = crate::update::mark_setup_done() {
+            self.login_error = Some(e);
+        }
+    }
+
+    /// Saves the GitHub token typed on the login screen and re-checks for updates.
+    pub fn save_update_token(&mut self) {
+        let token = self.update_token_input.text.trim().to_string();
+        if token.is_empty() {
+            return;
+        }
+        match crate::update::save_token(&token) {
+            Ok(()) => {
+                self.update_token = Some(token);
+                self.update_token_input = TextEdit::new("");
+                self.update_note = Some("บันทึก token แล้ว กำลังเช็กอัปเดต...".to_string());
+                self.check_for_update();
+            }
+            Err(e) => self.update_note = Some(e),
+        }
+    }
+
+    /// Downloads the newest release, replaces this app and restarts it.
+    pub fn start_update(&mut self) {
+        let version = match &self.update {
+            UpdateState::Available(v) => v.clone(),
+            _ => return,
+        };
+        self.update = UpdateState::Installing(version);
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        crate::update::spawn_install(self.update_token.clone(), tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    /// Opens the project picker and loads the user's GCP projects via gcloud.
+    pub fn begin_project_picker(&mut self) {
+        self.picking_project = true;
+        self.selected_project = None;
+        self.clusters.clear();
+        self.connecting_cluster = None;
+        self.gcp_error = None;
+        self.load_projects();
+    }
+
+    pub fn load_projects(&mut self) {
+        self.projects_loading = true;
+        self.gcp_error = None;
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        spawn_list_projects(tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    pub fn select_project(&mut self, project: GcpProject) {
+        self.selected_project = Some(project.clone());
+        self.clusters.clear();
+        self.clusters_loading = true;
+        self.connecting_cluster = None;
+        self.gcp_error = None;
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        spawn_list_clusters(project.id, tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    pub fn back_to_projects(&mut self) {
+        self.selected_project = None;
+        self.clusters.clear();
+        self.clusters_loading = false;
+        self.connecting_cluster = None;
+        self.gcp_error = None;
+    }
+
+    pub fn connect_cluster(&mut self, cluster: GkeCluster) {
+        let Some(project) = self.selected_project.clone() else {
+            return;
+        };
+        if self.connecting_cluster.is_some() {
+            return;
+        }
+        self.connecting_cluster = Some(cluster.name.clone());
+        self.gcp_error = None;
+        let tx = self.k8s_tx.clone();
+        let waker = self.waker.clone();
+        spawn_get_credentials(project.id, cluster, tx, move || {
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+    }
+
+    /// Leaves the picker and keeps whatever kubectl context is already active.
+    pub fn skip_project_picker(&mut self) {
+        self.picking_project = false;
+        self.gcp_error = None;
+        self.refresh_overview();
+        self.refresh_cluster();
+    }
+
     pub fn logout(&mut self) {
         self.k9s_pty.stop();
         self.k9s_screen = K9sScreen::default();
         self.session = None;
+        self.picking_project = false;
+        self.selected_project = None;
         self.banner = None;
         self.diagram_fullscreen = false;
         self.page = Page::Overview;
@@ -820,8 +1019,7 @@ impl AppState {
                 AuthEvent::Success(sess) => {
                     self.session = Some(sess);
                     self.login_error = None;
-                    self.refresh_overview();
-                    self.refresh_cluster();
+                    self.begin_project_picker();
                 }
                 AuthEvent::Error(err) => {
                     self.login_error = Some(err);
@@ -850,6 +1048,104 @@ impl AppState {
                 }
                 K8sEvent::AllNamespaces(list) => {
                     self.available_namespaces = list;
+                }
+                K8sEvent::Projects(result) => {
+                    self.projects_loading = false;
+                    match result {
+                        Ok(list) => {
+                            self.projects = list;
+                            self.gcp_error = None;
+                        }
+                        Err(e) => {
+                            self.projects.clear();
+                            self.gcp_error = Some(e);
+                        }
+                    }
+                }
+                K8sEvent::Clusters { project, result } => {
+                    // Ignore a stale answer if the user already picked another project.
+                    if self.selected_project.as_ref().map(|p| p.id.as_str()) == Some(project.as_str()) {
+                        self.clusters_loading = false;
+                        match result {
+                            Ok(list) => {
+                                self.clusters = list;
+                                self.gcp_error = None;
+                            }
+                            Err(e) => {
+                                self.clusters.clear();
+                                self.gcp_error = Some(e);
+                            }
+                        }
+                    }
+                }
+                K8sEvent::Credentials { project, cluster, result } => {
+                    self.connecting_cluster = None;
+                    match result {
+                        Ok(()) => {
+                            self.banner = Some((
+                                format!("เชื่อมต่อ cluster {cluster} ({project}) แล้ว"),
+                                true,
+                            ));
+                            self.active_project = Some(project);
+                            self.active_cluster = Some(cluster);
+                            self.picking_project = false;
+                            self.gcp_error = None;
+                            self.refresh_overview();
+                            self.refresh_cluster();
+                        }
+                        Err(e) => {
+                            self.gcp_error = Some(e);
+                        }
+                    }
+                }
+                K8sEvent::UpdateCheck(result) => match result {
+                    Ok(found) => {
+                        if self.update_token.is_some() {
+                            self.update_note = Some(match &found {
+                                Some(v) => format!("พบเวอร์ชันใหม่ v{v}"),
+                                None => "ใช้เวอร์ชันล่าสุดอยู่แล้ว".to_string(),
+                            });
+                        }
+                        if let Some(version) = found {
+                            self.update = UpdateState::Available(version);
+                        }
+                    }
+                    Err(e) => {
+                        if self.update_token.is_some() {
+                            self.update_note = Some(e);
+                        }
+                    }
+                },
+                K8sEvent::UpdateFailed(err) => {
+                    let previous = self.update.clone();
+                    if let UpdateState::Installing(version) = previous {
+                        self.update = UpdateState::Available(version);
+                    }
+                    let msg = format!("อัปเดตไม่สำเร็จ: {err}");
+                    if self.session.is_none() {
+                        self.login_error = Some(msg.clone());
+                    }
+                    self.banner = Some((msg, false));
+                }
+                K8sEvent::ToolsStatus(list) => {
+                    self.tools_checked = true;
+                    self.tools_missing = list;
+                }
+                K8sEvent::ToolsProgress(msg) => {
+                    self.tools_log = msg;
+                }
+                K8sEvent::ToolsDone(result) => {
+                    self.tools_installing = false;
+                    match result {
+                        Ok(()) => {
+                            self.tools_error = None;
+                            self.tools_log.clear();
+                            self.check_tools();
+                        }
+                        Err(e) => {
+                            self.tools_error = Some(e);
+                        }
+                    }
                 }
                 K8sEvent::Logs { pod, text } => {
                     if self.logs_pod.as_deref() == Some(pod.as_str()) {

@@ -1,0 +1,100 @@
+name: Build installers
+
+# Push a tag like v0.2.0 (it must equal `version` in Cargo.toml) to publish a GitHub Release.
+# The apps check this Release for updates, so the downloadable file names below must not change.
+# You can also run it by hand (Actions tab -> Run workflow) to get the files as artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: Mac (Apple Silicon + Intel) -> K9s-Studio-Mac.dmg
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: K-HAVE-U
+      - uses: actions/checkout@v4
+        with:
+          repository: anomalyco/rune
+          path: rune
+          token: ${{ secrets.RUNE_TOKEN || github.token }}
+      - name: Tag must match Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: K-HAVE-U
+        shell: bash
+        run: |
+          V="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          [ "v$V" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $V"; exit 1; }
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            K-HAVE-U
+      - name: Build universal .app and .dmg
+        working-directory: K-HAVE-U
+        env:
+          UNIVERSAL: "1"
+        run: bash packaging/macos/build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: K-HAVE-U/dist/K9s-Studio-Mac.dmg
+
+  windows:
+    name: Windows (x64) -> K9s-Studio-Windows-Setup.exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: K-HAVE-U
+      - uses: actions/checkout@v4
+        with:
+          repository: anomalyco/rune
+          path: rune
+          token: ${{ secrets.RUNE_TOKEN || github.token }}
+      - name: Tag must match Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: K-HAVE-U
+        shell: bash
+        run: |
+          V="$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          [ "v$V" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $V"; exit 1; }
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            K-HAVE-U
+      - name: Build
+        working-directory: K-HAVE-U
+        run: cargo build --release
+      - name: Build Setup.exe
+        working-directory: K-HAVE-U
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $v = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.*)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" packaging\windows\installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: K-HAVE-U/dist/K9s-Studio-Windows-Setup.exe
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            downloads/K9s-Studio-Mac.dmg
+            downloads/K9s-Studio-Windows-Setup.exe
