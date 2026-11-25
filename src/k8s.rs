@@ -157,6 +157,8 @@ pub struct NamespaceSummary {
     pub error: usize,
     pub ingress_count: usize,
     pub is_demo: bool,
+    /// Why this namespace couldn't be read, when it couldn't.
+    pub fetch_error: Option<String>,
 }
 
 pub enum K8sEvent {
@@ -228,6 +230,7 @@ pub fn spawn_fetch_overview(
                     error,
                     ingress_count: snap.ingresses.len(),
                     is_demo: snap.is_demo,
+                    fetch_error: snap.error.clone(),
                 });
             }
         }
@@ -583,14 +586,15 @@ fn fetch_snapshot_blocking(env: EnvKind, namespace: &str) -> ClusterSnapshot {
             let pod_top = fetch_pod_top(namespace);
             match parse_k8s_list(env, namespace, &context, &raw, &node_specs, &pod_top) {
                 Ok(snap) => snap,
-                Err(e) => demo_snapshot(env, namespace, &context, Some(format!("Parse JSON error: {e}"))),
+                Err(e) => error_snapshot(env, namespace, &context, format!("Parse JSON error: {e}")),
             }
         }
         Ok(o) => {
             let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-            demo_snapshot(env, namespace, &context, Some(crate::tf!("kubectl error (แสดงข้อมูลตัวอย่างแทน): {err}", "kubectl error (showing sample data instead): {err}")))
+            let err = if err.is_empty() { format!("kubectl exited with {}", o.status) } else { err };
+            error_snapshot(env, namespace, &context, err)
         }
-        Err(e) => demo_snapshot(env, namespace, &context, Some(crate::tf!("เรียก kubectl ไม่ได้ (แสดงข้อมูลตัวอย่างแทน): {e}", "Could not run kubectl (showing sample data instead): {e}"))),
+        Err(e) => error_snapshot(env, namespace, &context, format!("kubectl: {e}")),
     }
 }
 
@@ -1056,6 +1060,7 @@ pub fn default_overview() -> Vec<NamespaceSummary> {
                 error,
                 ingress_count: snap.ingresses.len(),
                 is_demo: true,
+                fetch_error: None,
             });
         }
     }
@@ -1081,6 +1086,16 @@ pub fn build_service_mermaid(svc: &ServiceInfo) -> String {
         lines.push(format!("    {svc_id} --> {tid}[(\"{t}\")]"));
     }
     lines.join("\n")
+}
+
+/// What a namespace looks like when it couldn't be read: no services, just the reason.
+/// It keeps `is_demo` so the Overview treats it as "not real data".
+pub fn error_snapshot(env: EnvKind, namespace: &str, context: &str, error: String) -> ClusterSnapshot {
+    let mut snap = demo_snapshot(env, namespace, context, Some(error));
+    snap.services.clear();
+    snap.ingresses.clear();
+    snap.mermaid_diagram.clear();
+    snap
 }
 
 pub fn demo_snapshot(env: EnvKind, namespace: &str, context: &str, error: Option<String>) -> ClusterSnapshot {

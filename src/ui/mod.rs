@@ -4,6 +4,7 @@ pub mod overview;
 pub mod owl_loader;
 pub mod pill;
 pub mod project_picker;
+pub mod error_panel;
 pub mod service_detail;
 pub mod setup;
 pub mod services;
@@ -223,6 +224,21 @@ pub fn app_shell(s: &AppState, k: &Kit) -> El {
             let sub_bar = namespace_subbar(s, k);
             let inner = if s.namespace_loading() {
                 owl_loader::view(s.loader_t, crate::tr!("กำลังโหลดข้อมูล namespace", "Loading namespace"), k)
+            } else if let (Some(err), true, false) =
+                (&s.snapshot.error, s.snapshot.services.is_empty(), s.tab == Tab::K9sCli)
+            {
+                // Nothing could be read: say what went wrong instead of an empty page.
+                error_panel::page(
+                    err,
+                    Some(format!(
+                        "{} {} • {}",
+                        crate::tr!("namespace", "namespace"),
+                        s.snapshot.namespace,
+                        s.snapshot.context
+                    )),
+                    |s: &mut AppState| s.refresh_cluster(),
+                    k,
+                )
             } else {
                 match s.tab {
                     Tab::Topology => topology::view(s, k),
@@ -281,8 +297,10 @@ pub fn app_shell(s: &AppState, k: &Kit) -> El {
         );
     }
 
-    if s.page != Page::Overview {
+    // The full error card already covers an empty namespace page; this line is for partial data.
+    if s.page != Page::Overview && !s.snapshot.services.is_empty() {
         if let Some(err) = &s.snapshot.error {
+            let d = crate::diagnose::diagnose(err);
             root_col = root_col.child(
                 row()
                     .key("k8s-warn")
@@ -295,7 +313,7 @@ pub fn app_shell(s: &AppState, k: &Kit) -> El {
                     .gap(8.0)
                     .child(mono_icon(&icons::WARNING, 14.0, c.warning.fg))
                     .child(
-                        text(err.clone())
+                        text(format!("{} — {}", d.title, d.fix))
                             .font(k.ty.small_medium)
                             .color(c.warning.fg)
                             .grow(1.0),

@@ -152,6 +152,8 @@ pub struct AppState {
     pub overview_loading: bool,
     /// Namespaces whose data could not be read on the last overview refresh (no mock data is shown).
     pub overview_failed: usize,
+    /// ("STG / name", raw error) for each namespace the Overview couldn't read.
+    pub overview_errors: Vec<(String, String)>,
     /// Seconds since a loading animation appeared (drives the owl loader frames).
     pub loader_t: f32,
     /// Press-and-hold on a namespace card (to stop watching it).
@@ -291,6 +293,7 @@ impl AppState {
             overview: Vec::new(),
             overview_loading: false,
             overview_failed: 0,
+            overview_errors: Vec::new(),
             loader_t: 0.0,
             loader_since: None,
             snapshot,
@@ -1387,6 +1390,16 @@ impl AppState {
                     self.overview_loading = false;
                     // Only real cluster data on the Overview: drop the demo fallbacks.
                     self.overview_failed = list.iter().filter(|n| n.is_demo).count();
+                    self.overview_errors = list
+                        .iter()
+                        .filter(|n| n.is_demo)
+                        .map(|n| {
+                            (
+                                format!("{} / {}", n.env.label(), n.namespace),
+                                n.fetch_error.clone().unwrap_or_else(|| "unknown error".into()),
+                            )
+                        })
+                        .collect();
                     let list: Vec<NamespaceSummary> = list.into_iter().filter(|n| !n.is_demo).collect();
                     self.overview = list;
                 }

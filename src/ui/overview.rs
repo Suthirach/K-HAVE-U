@@ -213,9 +213,13 @@ pub fn view(s: &AppState, k: &Kit) -> El {
     let cards_grid = if s.overview.is_empty() && s.overview_loading {
         crate::ui::owl_loader::view(s.loader_t, crate::tr!("กำลังโหลดข้อมูลจาก cluster", "Loading cluster data"), k)
     } else if s.overview.is_empty() && s.overview_failed > 0 {
-        empty_state(
-            crate::tr!("อ่านข้อมูลจาก cluster ไม่ได้", "Couldn't read the cluster"),
-            crate::tr!("ตรวจว่าเลือก Project/Cluster ถูกต้องและล็อกอิน gcloud แล้ว จากนั้นกด Refresh", "Check the project/cluster and your gcloud sign-in, then press Refresh"),
+        // Every namespace failed: one clear card with the reason of the first failure.
+        let raw = s.overview_errors.first().map(|(_, e)| e.clone()).unwrap_or_default();
+        let names: Vec<&str> = s.overview_errors.iter().map(|(n, _)| n.as_str()).collect();
+        crate::ui::error_panel::panel(
+            &raw,
+            Some(crate::tf!("อ่านไม่ได้ทั้งหมด: {}", "None could be read: {}", names.join(", "))),
+            |s: &mut AppState| s.refresh_overview(),
             k,
         )
     } else if s.overview.is_empty() {
@@ -236,6 +240,12 @@ pub fn view(s: &AppState, k: &Kit) -> El {
         .child(top_bar)
         .children(if s.adding_ns { Some(add_namespace_panel(s, k)) } else { None })
         .child(hero)
+        // Some namespaces loaded and some didn't: say which ones and why, above the cards.
+        .children(if !s.overview.is_empty() && !s.overview_errors.is_empty() && !s.overview_loading {
+            Some(crate::ui::error_panel::strip(&s.overview_errors, |s: &mut AppState| s.refresh_overview(), k))
+        } else {
+            None
+        })
         .child(cards_grid);
 
     content.scroll(ScrollSpec { stick_bottom: false }).w_full().h_full()

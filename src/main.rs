@@ -1,4 +1,5 @@
 mod auth;
+mod diagnose;
 mod gcp;
 mod i18n;
 mod k8s;

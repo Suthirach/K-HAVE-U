@@ -31,3 +31,8 @@ macro_rules! tf {
         if $crate::i18n::is_thai() { format!($th $($rest)*) } else { format!($en $($rest)*) }
     };
 }
+
+/// Picks the Thai or English triple (title, cause, fix) for the current language.
+pub fn pick3(th: (&'static str, &'static str, &'static str), en: (&'static str, &'static str, &'static str)) -> (&'static str, &'static str, &'static str) {
+    if is_thai() { th } else { en }
+}

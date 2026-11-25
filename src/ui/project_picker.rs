@@ -130,11 +130,33 @@ pub fn view(s: &AppState, k: &Kit) -> El {
                 .fill(c.danger.bg)
                 .border(1.0, c.danger.border)
                 .child(icons::mono_icon(&icons::WARNING, 14.0, c.danger.fg))
-                .child(
-                    text(err.clone())
-                        .font(k.ty.text_small_medium)
-                        .color(c.danger.fg),
-                ),
+                .child({
+                    // What went wrong and what to do, then the raw message underneath.
+                    let d = crate::diagnose::diagnose(err);
+                    col()
+                        .gap(3.0)
+                        .grow(1.0)
+                        .shrink()
+                        .min_w(0.0)
+                        .child(
+                            text(format!("{} — {}", d.title, d.fix))
+                                .font(k.ty.text_small_medium)
+                                .color(c.danger.fg)
+                                .wrap()
+                                .w_full()
+                                .shrink()
+                                .min_w(0.0),
+                        )
+                        .child(
+                            text(d.raw)
+                                .font(k.ty.small)
+                                .color(theme::text_muted())
+                                .wrap()
+                                .w_full()
+                                .shrink()
+                                .min_w(0.0),
+                        )
+                }),
         );
     }
 
